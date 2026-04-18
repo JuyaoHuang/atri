@@ -1,6 +1,6 @@
 """Memory Manager -- per-round orchestration of short-term memory.
 
-Responsibilities (Phase 3 Step 5 scope, per US-MEM-005):
+Responsibilities (Phase 3 Step 5 + Step 6 scope, per US-MEM-005/006):
 
 * Apply L1 snip to each inbound user message.
 * Append every exchange to the session's ``chat_history`` (both valid and
@@ -8,15 +8,19 @@ Responsibilities (Phase 3 Step 5 scope, per US-MEM-005):
 * Track ``total_rounds`` and maintain ``recent_messages`` -- valid rounds
   only, per §3.2 round definition.
 * Trigger L3 Collapse every ``trigger_rounds`` (compress the oldest
-  ``compress_rounds`` rounds in ``recent_messages``).
+  ``compress_rounds`` rounds in ``recent_messages``). When a
+  :class:`LongTermMemory` is injected, the same raw window is persisted to
+  mem0 via ``long_term.add`` (best-effort; errors log WARNING but never
+  break the round).
 * Trigger L4 Super-Compact when ``len(active_blocks) >= trigger_blocks``.
+* Expose :meth:`search_long_term` so callers can retrieve related facts
+  before composing the LLM context.
 * Persist short-term state via :class:`ShortTermStore` once per round.
 
-Long-term mem0 integration is stubbed here -- US-MEM-006 will wire it into
-the L3 branch. Session lifecycle (``start_session`` / ``close_session``) and
-resume are US-MEM-007/US-MEM-008.
+Session lifecycle (``start_session`` / ``close_session``) and resume are
+US-MEM-007/US-MEM-008.
 
-Reference: docs/记忆系统设计讨论.md §3.2, §3.3, §6.1.
+Reference: docs/记忆系统设计讨论.md §3.2, §3.3, §4.2, §6.1.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from loguru import logger
 from src.llm.interface import LLMInterface
 from src.memory.chat_history import ChatHistoryWriter
 from src.memory.compressor import l3_collapse, l4_super_compact
+from src.memory.long_term import LongTermMemory
 from src.memory.short_term import ShortTermStore
 from src.memory.snip import snip
 
@@ -83,11 +88,13 @@ class MemoryManager:
         character: str,
         user_id: str,
         character_dir: Path | None = None,
+        long_term: LongTermMemory | None = None,
     ) -> None:
         self.memory_config = memory_config
         self.llm_factory_fn = llm_factory_fn
         self.character = character
         self.user_id = user_id
+        self.long_term = long_term
 
         short_term_cfg = memory_config.get("short_term", {})
         collapse_cfg = short_term_cfg.get("collapse", {})
@@ -238,7 +245,13 @@ class MemoryManager:
         self._state["active_blocks"].append(block)
         del recent[:window_msg_count]
 
-        # TODO(US-MEM-006): long_term.add(window, user_id, agent_id, run_id).
+        if self.long_term is not None:
+            await self.long_term.add(
+                window,
+                user_id=self.user_id,
+                agent_id=self.character,
+                run_id=self._active_session_id or "default",
+            )
 
         logger.info(
             f"L3 fired | rounds={start_round}-{end_round} | "
@@ -263,6 +276,30 @@ class MemoryManager:
             f"L4 fired | meta_block_id={meta_block['block_id']} | "
             f"meta_blocks={len(self._state['meta_blocks'])} | "
             f"active_blocks={len(self._state['active_blocks'])}"
+        )
+
+    # ------------------------------------------------------------------
+    # Long-term memory query
+    # ------------------------------------------------------------------
+
+    async def search_long_term(
+        self,
+        query: str,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Retrieve related long-term facts for the current user/agent pair.
+
+        Returns ``[]`` when no ``LongTermMemory`` was injected so callers can
+        build the LLM context unconditionally. Threshold is handled inside
+        :class:`LongTermMemory` (defaults mirror §8.3).
+        """
+        if self.long_term is None:
+            return []
+        return await self.long_term.search(
+            query,
+            user_id=self.user_id,
+            agent_id=self.character,
+            limit=limit,
         )
 
 

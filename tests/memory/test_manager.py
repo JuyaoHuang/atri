@@ -253,3 +253,73 @@ async def test_session_id_bootstrap_follows_pattern(tmp_path: Path) -> None:
     sid = mgr.active_session_id
     assert sid is not None
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}_[0-9a-f]{8}", sid)
+
+
+# ---------------------------------------------------------------------------
+# Long-term memory integration (US-MEM-006)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_l3_trigger_calls_long_term_add(tmp_path: Path) -> None:
+    """When LongTermMemory is injected, L3 should forward the raw window to mem0."""
+    long_term = MagicMock()
+    long_term.add = AsyncMock(return_value=None)
+    long_term.search = AsyncMock(return_value=[])
+
+    mgr = MemoryManager(
+        _default_config(),
+        _make_factory(),
+        character="atri",
+        user_id="alice",
+        character_dir=tmp_path,
+        long_term=long_term,
+    )
+    for _ in range(26):
+        await mgr.on_round_complete(_human(), _ai())
+
+    # L3 fired exactly once -> long_term.add awaited exactly once.
+    long_term.add.assert_awaited_once()
+    call_args = long_term.add.call_args
+    sent_messages = call_args.args[0]
+    # 20 compressed rounds = 40 raw messages.
+    assert len(sent_messages) == 40
+    assert call_args.kwargs["user_id"] == "alice"
+    assert call_args.kwargs["agent_id"] == "atri"
+    # run_id = active session_id (bootstrap-generated, matches pattern).
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}_[0-9a-f]{8}", call_args.kwargs["run_id"])
+
+
+@pytest.mark.asyncio
+async def test_no_long_term_injection_skips_mem0_call(tmp_path: Path) -> None:
+    """Default path without LongTermMemory stays functional (no error)."""
+    mgr = _new_manager(tmp_path)  # long_term defaults to None
+    for _ in range(26):
+        await mgr.on_round_complete(_human(), _ai())
+    assert mgr.state["total_rounds"] == 26
+    assert len(mgr.state["active_blocks"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_search_long_term_delegates_to_injected_backend(tmp_path: Path) -> None:
+    long_term = MagicMock()
+    long_term.search = AsyncMock(return_value=[{"memory": "fact1", "score": 0.9}])
+
+    mgr = MemoryManager(
+        _default_config(),
+        _make_factory(),
+        character="atri",
+        user_id="alice",
+        character_dir=tmp_path,
+        long_term=long_term,
+    )
+    results = await mgr.search_long_term("hello", limit=3)
+    long_term.search.assert_awaited_once_with("hello", user_id="alice", agent_id="atri", limit=3)
+    assert results == [{"memory": "fact1", "score": 0.9}]
+
+
+@pytest.mark.asyncio
+async def test_search_long_term_returns_empty_when_no_backend(tmp_path: Path) -> None:
+    mgr = _new_manager(tmp_path)  # no long_term injected
+    results = await mgr.search_long_term("anything")
+    assert results == []
