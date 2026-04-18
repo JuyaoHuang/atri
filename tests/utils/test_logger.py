@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from src.utils.logger import init_logger
 
 
 @pytest.fixture(autouse=True)
-def _reset_logger() -> None:
+def _reset_logger() -> Generator[None, None, None]:
     """Detach all sinks after each test to avoid bleed-over state."""
     yield
     logger.remove()
