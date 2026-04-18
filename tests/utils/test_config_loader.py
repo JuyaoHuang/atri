@@ -1,4 +1,9 @@
-"""Tests for src.utils.config_loader."""
+"""Tests for src.utils.config_loader.
+
+测试目的：验证分层配置加载器的行为，涵盖根配置与子配置的合并、
+``${ENV_VAR}`` 环境变量替换（已设置时替换、未设置时保留占位符）、
+在嵌套字典/列表中的递归替换，以及根文件或子文件缺失时的错误处理。
+"""
 
 from __future__ import annotations
 

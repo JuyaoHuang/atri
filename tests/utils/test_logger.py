@@ -1,4 +1,9 @@
-"""Tests for src.utils.logger."""
+"""Tests for src.utils.logger.
+
+测试目的：验证 loguru 日志记录器初始化的正确性，包括默认调用不抛出异常、
+接受自定义控制台日志级别，以及能够按预期在 ``logs/`` 目录下创建
+``debug_*.log`` 日志文件。
+"""
 
 from __future__ import annotations
 

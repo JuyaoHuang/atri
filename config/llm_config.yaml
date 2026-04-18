@@ -1,37 +1,52 @@
 # ============================================================
 # LLM credential pool + role mapping
+# LLM 凭据池 + 角色映射
 #
 # llm_configs: credential pool -- all available LLM connections.
 #              Each entry's `provider` field must match a class
 #              registered via @LLMFactory.register("<name>").
+# llm_configs: 凭据池——所有可用的 LLM 连接。
+#              每个条目的 `provider` 字段必须与通过
+#              @LLMFactory.register("<name>") 注册的类名一致。
 #
 # llm_roles:   which pool entry each call-site uses.
 #              Three call-sites: chat / l3_compress / l4_compact.
 #              mem0's internal LLM is configured separately in
 #              memory_config.yaml (mem0.local_deploy.llm).
+# llm_roles:   每个调用位点使用哪一个池条目。
+#              三个调用位点：chat / l3_compress / l4_compact。
+#              mem0 内部使用的 LLM 在 memory_config.yaml
+#              (mem0.local_deploy.llm) 中单独配置。
 #
 # Secrets:     use ${ENV_VAR} placeholders; the loader substitutes
 #              from os.environ at read time.
+# 密钥:        使用 ${ENV_VAR} 占位符；加载器在读取时从
+#              os.environ 中替换。
 #
 # Reference: docs/LLM调用层设计讨论.md §2.3, §2.4, §2.5
 # ============================================================
 
+# 凭据池：定义所有可用的 LLM 连接配置
 llm_configs:
+  # 主聊天模型配置（供 chat 角色使用）
   chat_main:
-    provider: openai_compatible
-    model: gpt-4o
-    base_url: https://api.openai.com/v1
-    api_key: ${OPENAI_API_KEY}
-    temperature: 0.7
+    provider: openai_compatible        # 提供商名称，须与工厂注册名一致
+    model: gpt-4o                      # 模型名称
+    base_url: https://api.openai.com/v1  # API 基础 URL
+    api_key: ${OPENAI_API_KEY}         # API 密钥（从环境变量读取）
+    temperature: 0.7                   # 采样温度：聊天场景使用较高值以保留多样性
 
+  # 轻量压缩模型配置（供 l3_compress / l4_compact 角色使用）
   compress_light:
-    provider: openai_compatible
-    model: claude-haiku-4-5
-    base_url: ${COMPRESS_BASE_URL}
-    api_key: ${COMPRESS_API_KEY}
-    temperature: 0.3
+    provider: openai_compatible        # 提供商名称，须与工厂注册名一致
+    model: claude-haiku-4-5            # 使用更轻量/更便宜的模型以降低压缩成本
+    base_url: ${COMPRESS_BASE_URL}     # API 基础 URL（从环境变量读取）
+    api_key: ${COMPRESS_API_KEY}       # API 密钥（从环境变量读取）
+    temperature: 0.3                   # 采样温度：压缩场景使用较低值以确保稳定性
 
+# 角色映射：将每个调用位点映射到 llm_configs 中的某个池条目
 llm_roles:
-  chat: chat_main
-  l3_compress: compress_light
-  l4_compact: compress_light
+  chat: chat_main              # 聊天调用位点 -> chat_main
+  l3_compress: compress_light  # L3 滚动压缩 -> compress_light
+  l4_compact: compress_light   # L4 整合压缩 -> compress_light
+

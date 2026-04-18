@@ -14,17 +14,16 @@ to populate every referenced variable.
 
 分层配置加载器——根配置按路径引用子文件。
 
-根``config.yaml``包含如下条目：
+根 ``config.yaml`` 包含如下条目::
 
-    llm_config：config/llm_config.yaml
-    内存配置：config/memory_config.yaml
+    llm_config: config/llm_config.yaml
+    memory_config: config/memory_config.yaml
 
-该加载器读取根目录，解析相对于根目录的每个子路径
-文件的目录，并将子内容内联到由以下键控的合并字典中
-剥离的主干（``llm_config`` -> ``llm``）。 ``${ENV_VAR}`` 标记是
-在合并期间从“os.environ”替换；未设置的变量保留
-他们的文字占位符，因此未使用的配置分支不会强迫用户
-填充每个引用的变量。
+该加载器读取根文件，将每个子路径解析为相对于根文件所在目录的路径，并将子
+内容内联到一个合并字典中，键名为去掉后缀 ``_config`` 的名称
+（``llm_config`` -> ``llm``）。合并期间 ``${ENV_VAR}`` 标记会从
+``os.environ`` 中替换；未设置的变量保留其字面占位符，这样未使用的配置分支
+不会强制用户填充每个被引用的变量。
 
 Reference: docs/LLM调用层设计讨论.md §2.5
 """
@@ -73,6 +72,21 @@ def load_config(root_path: str | Path) -> dict[str, Any]:
 
     Raises:
         FileNotFoundError: Root or any referenced sub-file is missing.
+
+    加载根配置 + 引用的子配置文件，并进行环境变量替换。
+
+    任何名称以 ``_config`` 结尾且值为字符串的根键都会被视为路径引用。
+    被引用的 YAML 文件会被读取并内联到去掉 ``_config`` 后缀的键名下。
+    其他根键按原样复制。路径相对于根文件的父目录进行解析。
+
+    参数：
+        root_path：根 ``config.yaml`` 的路径。
+
+    返回：
+        合并后的字典，例如 ``{"llm": {...}, "memory": {...}}``。
+
+    抛出：
+        FileNotFoundError：根文件或任何被引用的子文件缺失。
     """
     root_file = Path(root_path).resolve()
     if not root_file.is_file():

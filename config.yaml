@@ -6,6 +6,13 @@
 # src/utils/config_loader.py reads this, then inlines each
 # referenced sub-file into a merged dict keyed by the stem
 # (e.g. llm_config -> llm).
+# Emotion-Robot (atri) 根配置
+#
+# 该文件是单一入口点。它引用子配置
+# 按路径排列的文件（docker-compose 风格）。装载机位于
+# src/utils/config_loader.py 读取此内容，然后内联每个
+# 将子文件引用到由词干键入的合并字典中
+#（例如 llm_config -> llm）。
 #
 # Reference: docs/LLM调用层设计讨论.md §2.5
 # ============================================================
