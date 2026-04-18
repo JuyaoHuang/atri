@@ -1,2 +1,29 @@
 .omc
 .idea
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Logs -- keep directory via .gitkeep, ignore log files
+logs/*.log
+logs/*.log.*
+
+# Runtime data -- keep dir structure, ignore user-generated content
+data/characters/**/sessions/
+data/characters/**/short_term_memory.json
+data/qdrant/
+
+# Env files
+.env
+.env.*
+!.env.example
