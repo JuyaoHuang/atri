@@ -567,3 +567,173 @@ async def test_resume_chat_history_with_trailing_garbage(tmp_path: Path) -> None
     # Must NOT raise; tolerant parse yields the 5 well-formed rounds.
     await mgr.resume_session(session_id)
     assert mgr.state["total_rounds"] == 5
+
+
+# ---------------------------------------------------------------------------
+# LLM context builder (US-MEM-009, §3.5 payload order)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_full_order(tmp_path: Path) -> None:
+    """system -> long_term -> meta -> active -> recent -> user, in that order."""
+    long_term = MagicMock()
+    long_term.search = AsyncMock(
+        return_value=[
+            {"memory": "likes bubble tea", "score": 0.9},
+            {"memory": "plays piano", "score": 0.85},
+        ]
+    )
+    mgr = MemoryManager(
+        _default_config(),
+        _make_factory(),
+        character="atri",
+        user_id="alice",
+        character_dir=tmp_path,
+        long_term=long_term,
+    )
+    # Inject blocks + recent messages directly into state.
+    mgr.state["meta_blocks"] = [
+        {"summary": "meta_newer", "covers_rounds": [21, 80]},
+        {"summary": "meta_older", "covers_rounds": [1, 20]},
+    ]
+    mgr.state["active_blocks"] = [
+        {"summary": "active_1", "covers_rounds": [81, 100]},
+        {"summary": "active_2", "covers_rounds": [101, 120]},
+    ]
+    mgr.state["recent_messages"] = [
+        {"role": "human", "content": "h1"},
+        {"role": "ai", "content": "a1"},
+    ]
+
+    messages = await mgr.build_llm_context("what's up", system_prompt="You are atri")
+
+    roles = [m["role"] for m in messages]
+    contents = [m["content"] for m in messages]
+    assert roles == [
+        "system",  # system_prompt
+        "system",  # long-term wrapper
+        "system",  # meta_older (reversed)
+        "system",  # meta_newer
+        "system",  # active_1
+        "system",  # active_2
+        "user",  # h1
+        "assistant",  # a1
+        "user",  # final user_input
+    ]
+    assert contents[0] == "You are atri"
+    assert contents[1].startswith("关于这位用户，你记得：")
+    assert "- likes bubble tea" in contents[1]
+    assert "- plays piano" in contents[1]
+    assert contents[2] == "meta_older"
+    assert contents[3] == "meta_newer"
+    assert contents[4] == "active_1"
+    assert contents[5] == "active_2"
+    assert contents[6] == "h1"
+    assert contents[7] == "a1"
+    assert contents[8] == "what's up"
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_empty_system_prompt_omits_position_1(
+    tmp_path: Path,
+) -> None:
+    long_term = MagicMock()
+    long_term.search = AsyncMock(return_value=[{"memory": "likes cats", "score": 0.9}])
+    mgr = MemoryManager(
+        _default_config(),
+        _make_factory(),
+        character="atri",
+        user_id="alice",
+        character_dir=tmp_path,
+        long_term=long_term,
+    )
+    messages = await mgr.build_llm_context("hi", system_prompt="")
+    # First message is the long-term wrapper (no preceding system_prompt).
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"].startswith("关于这位用户，你记得：")
+    assert messages[-1] == {"role": "user", "content": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_empty_long_term_omits_position_2(
+    tmp_path: Path,
+) -> None:
+    """When search returns [], the long-term wrapper message is skipped."""
+    mgr, _long_term = _make_manager_with_mock_long_term(tmp_path)
+    messages = await mgr.build_llm_context("hello", system_prompt="sysprompt")
+    # With no blocks / recent messages, layout is just [sysprompt, user].
+    assert messages == [
+        {"role": "system", "content": "sysprompt"},
+        {"role": "user", "content": "hello"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_role_mapping(tmp_path: Path) -> None:
+    """human -> user, ai -> assistant, system -> system."""
+    mgr, _long_term = _make_manager_with_mock_long_term(tmp_path)
+    mgr.state["recent_messages"] = [
+        {"role": "human", "content": "q1"},
+        {"role": "ai", "content": "r1"},
+        {"role": "system", "content": "[interrupt]"},
+    ]
+    messages = await mgr.build_llm_context("next")
+    # Drop the final user_input so we inspect only the mapped tail.
+    mapped = messages[:-1]
+    assert mapped[-3] == {"role": "user", "content": "q1"}
+    assert mapped[-2] == {"role": "assistant", "content": "r1"}
+    assert mapped[-1] == {"role": "system", "content": "[interrupt]"}
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_long_term_bullet_format(tmp_path: Path) -> None:
+    long_term = MagicMock()
+    long_term.search = AsyncMock(
+        return_value=[
+            {"memory": "fact A", "score": 0.9},
+            {"memory": "fact B", "score": 0.85},
+            {"memory": "fact C", "score": 0.8},
+        ]
+    )
+    mgr = MemoryManager(
+        _default_config(),
+        _make_factory(),
+        character="atri",
+        user_id="alice",
+        character_dir=tmp_path,
+        long_term=long_term,
+    )
+    messages = await mgr.build_llm_context("q")
+    wrapper = messages[0]  # no system_prompt -> long-term wrapper is first
+    assert wrapper["content"] == ("关于这位用户，你记得：\n- fact A\n- fact B\n- fact C")
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_unknown_role_raises(tmp_path: Path) -> None:
+    mgr, _long_term = _make_manager_with_mock_long_term(tmp_path)
+    mgr.state["recent_messages"] = [{"role": "spaceship", "content": "??"}]
+    with pytest.raises(ValueError, match="Unknown role"):
+        await mgr.build_llm_context("q")
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_does_not_call_llm(tmp_path: Path) -> None:
+    """The builder must only assemble; LLM call is ChatAgent's job."""
+    shared_llm = _make_llm()
+    factory_calls: list[str] = []
+
+    def _factory(role: str) -> MagicMock:
+        factory_calls.append(role)
+        return shared_llm
+
+    mgr = MemoryManager(
+        _default_config(),
+        _factory,
+        character="atri",
+        user_id="alice",
+        character_dir=tmp_path,
+    )
+    await mgr.build_llm_context("hello", system_prompt="s")
+    shared_llm.chat_completion.assert_not_awaited()
+    assert factory_calls == []

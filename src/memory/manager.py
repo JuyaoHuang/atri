@@ -66,6 +66,22 @@ def _is_valid_round(ai_msg: dict[str, Any]) -> bool:
     return not content.startswith("Error")
 
 
+_ROLE_MAP: dict[str, str] = {"human": "user", "ai": "assistant", "system": "system"}
+
+
+def _map_role(role: str) -> str:
+    """Translate internal role labels to the OpenAI-style API vocabulary.
+
+    ``human`` -> ``user``, ``ai`` -> ``assistant``, ``system`` -> ``system``.
+    Any other label raises :class:`ValueError` so accidental typos surface
+    loudly instead of silently corrupting the LLM payload.
+    """
+    mapped = _ROLE_MAP.get(role)
+    if mapped is None:
+        raise ValueError(f"Unknown role: {role!r}")
+    return mapped
+
+
 class MemoryManager:
     """Central orchestrator of short-term memory for one character session.
 
@@ -534,6 +550,72 @@ class MemoryManager:
             agent_id=self.character,
             limit=limit,
         )
+
+    # ------------------------------------------------------------------
+    # LLM context builder (US-MEM-009, §3.5 payload order)
+    # ------------------------------------------------------------------
+
+    async def build_llm_context(
+        self,
+        user_input: str,
+        system_prompt: str = "",
+    ) -> list[dict[str, Any]]:
+        """Assemble the messages payload for the next LLM turn.
+
+        Order follows design doc §3.5 strictly:
+
+          1. ``system_prompt``                                (skipped if empty)
+          2. Long-term facts retrieved via ``long_term.search`` wrapped in a
+             single system message ``"关于这位用户，你记得：\\n- ..."``   (skipped when empty)
+          3. Each ``meta_block['summary']``                   oldest-first
+          4. Each ``active_block['summary']``                 oldest-first
+          5. ``recent_messages`` expanded one message each, with role
+             mapping ``human`` -> ``user`` and ``ai`` -> ``assistant``.
+          6. ``user_input`` as a final ``{'role':'user', ...}``.
+
+        This method does **not** call the LLM -- it only composes the list.
+        ``ChatAgent`` (Phase 4) consumes the result and feeds it to
+        :class:`LLMInterface`.
+        """
+        messages: list[dict[str, Any]] = []
+
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        long_term_hits = await self.search_long_term(user_input)
+        if long_term_hits:
+            facts = [str(h.get("memory", "")).strip() for h in long_term_hits]
+            facts = [f for f in facts if f]
+            if facts:
+                joined = "\n- ".join(facts)
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": f"关于这位用户，你记得：\n- {joined}",
+                    }
+                )
+
+        if self._state is not None:
+            # meta_blocks are stored newest-first (§4.2 convention); render
+            # oldest-first so the LLM reads history chronologically.
+            for meta in reversed(self._state.get("meta_blocks", [])):
+                summary = meta.get("summary", "")
+                if summary:
+                    messages.append({"role": "system", "content": summary})
+            for active in self._state.get("active_blocks", []):
+                summary = active.get("summary", "")
+                if summary:
+                    messages.append({"role": "system", "content": summary})
+            for raw in self._state.get("recent_messages", []):
+                messages.append(
+                    {
+                        "role": _map_role(raw.get("role", "")),
+                        "content": raw.get("content", ""),
+                    }
+                )
+
+        messages.append({"role": "user", "content": user_input})
+        return messages
 
 
 __all__ = ["MemoryManager", "LLMFactoryFn"]
