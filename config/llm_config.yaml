@@ -49,4 +49,3 @@ llm_roles:
   chat: chat_main              # 聊天调用位点 -> chat_main
   l3_compress: compress_light  # L3 滚动压缩 -> compress_light
   l4_compact: compress_light   # L4 整合压缩 -> compress_light
-
