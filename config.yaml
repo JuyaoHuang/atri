@@ -1,0 +1,19 @@
+# ============================================================
+# Emotion-Robot (atri) Root Configuration
+#
+# This file is the single entry point. It references sub-config
+# files by path (docker-compose style). The loader at
+# src/utils/config_loader.py reads this, then inlines each
+# referenced sub-file into a merged dict keyed by the stem
+# (e.g. llm_config -> llm).
+#
+# Reference: docs/LLM调用层设计讨论.md §2.5
+# ============================================================
+
+llm_config: config/llm_config.yaml
+memory_config: config/memory_config.yaml
+
+# Reserved for future phases:
+# asr_config: config/asr_config.yaml
+# tts_config: config/tts_config.yaml
+# translate_config: config/translate_config.yaml

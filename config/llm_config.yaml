@@ -1,0 +1,37 @@
+# ============================================================
+# LLM credential pool + role mapping
+#
+# llm_configs: credential pool -- all available LLM connections.
+#              Each entry's `provider` field must match a class
+#              registered via @LLMFactory.register("<name>").
+#
+# llm_roles:   which pool entry each call-site uses.
+#              Three call-sites: chat / l3_compress / l4_compact.
+#              mem0's internal LLM is configured separately in
+#              memory_config.yaml (mem0.local_deploy.llm).
+#
+# Secrets:     use ${ENV_VAR} placeholders; the loader substitutes
+#              from os.environ at read time.
+#
+# Reference: docs/LLM调用层设计讨论.md §2.3, §2.4, §2.5
+# ============================================================
+
+llm_configs:
+  chat_main:
+    provider: openai_compatible
+    model: gpt-4o
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+    temperature: 0.7
+
+  compress_light:
+    provider: openai_compatible
+    model: claude-haiku-4-5
+    base_url: ${COMPRESS_BASE_URL}
+    api_key: ${COMPRESS_API_KEY}
+    temperature: 0.3
+
+llm_roles:
+  chat: chat_main
+  l3_compress: compress_light
+  l4_compact: compress_light

@@ -1,0 +1,89 @@
+# ============================================================
+# Memory system config -- short-term compression + long-term mem0
+#
+# Reference: docs/记忆系统设计讨论.md §7, §8.1-§8.7
+# ============================================================
+
+# --- Short-term memory: L1 Snip / L3 Collapse / L4 Super-Compact ---
+short_term:
+  # L1 Snip -- pure-rule cleaning, no LLM call
+  snip:
+    filler_words: ["嗯", "啊", "呃", "额", "那个", "就是说", "对对对"]
+    similarity_threshold: 0.95       # duplicate-removal threshold
+    max_single_message_tokens: 800   # hard truncation limit
+
+  # L3 Collapse -- round-driven compression
+  collapse:
+    trigger_rounds: 26               # every N rounds triggers L3
+    compress_rounds: 20              # oldest M rounds get compressed
+    keep_recent_rounds: 6            # keep latest K rounds raw
+
+  # L4 Super-Compact -- block-count-driven meta compression
+  super_compact:
+    trigger_blocks: 4                # every N level-0 blocks triggers L4
+
+  # Compressor role mapping -- references llm_config.yaml#llm_roles
+  compressor:
+    l3_role: l3_compress
+    l4_role: l4_compact
+    l3_prompt_template: prompts/l3_collapse.txt
+    l4_prompt_template: prompts/l4_super_compact.txt
+
+# --- Long-term memory: mem0 ---
+mem0:
+  mode: local_deploy                 # "sdk" | "local_deploy"
+
+  # --- Mode A: mem0 SaaS ---
+  sdk:
+    api_key: ${MEM0_API_KEY}
+
+  # --- Mode B: local / self-hosted ---
+  local_deploy:
+    vector_store:
+      provider: qdrant
+      config:
+        path: ./data/qdrant          # embedded mode (default)
+        # host: localhost            # uncomment for server mode
+        # port: 6333
+
+    embedder:
+      backend: ollama                # "ollama" | "api"
+      ollama:
+        model: bge-m3
+        base_url: http://localhost:11434
+      api:
+        provider: openai
+        model: text-embedding-3-small
+        api_key: ${OPENAI_API_KEY}
+        base_url: https://api.openai.com/v1
+
+    llm:
+      reuse_main_llm: false          # use independent fact-extraction LLM
+      backend: ollama                # "ollama" | "api"
+      ollama:
+        model: qwen2.5:7b
+        base_url: http://localhost:11434
+      api:
+        provider: openai
+        model: gpt-4o-mini
+        api_key: ${OPENAI_API_KEY}
+        base_url: https://api.openai.com/v1
+
+    # Graph Memory -- MVP disabled, structure reserved
+    graph_store:
+      enabled: false
+      provider: neo4j
+      config:
+        url: bolt://localhost:7687
+        username: neo4j
+        password: ${NEO4J_PASSWORD}
+
+  # search() parameters, shared by both modes
+  search:
+    limit: 5
+    threshold: 0.3
+    rerank: false
+
+# --- Storage paths ---
+storage:
+  characters_dir: ./data/characters
