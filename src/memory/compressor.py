@@ -104,4 +104,71 @@ async def l3_collapse(
     }
 
 
-__all__ = ["l3_collapse"]
+async def l4_super_compact(
+    blocks: list[dict[str, Any]],
+    llm: LLMInterface,
+    prompt_loader_fn: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    """Merge several event-level blocks into one pattern-level meta-block.
+
+    Args:
+        blocks: A list of L3 blocks (level 0) to integrate. Each block must
+            carry ``block_id``, ``covers_rounds`` (``[start, end]``) and
+            ``summary``. Length must be ``>= 2``; the default MemoryManager
+            trigger supplies 4 blocks but the function itself only requires
+            at least two to form a pattern.
+        llm: An ``LLMInterface`` instance (typically the ``l4_compact`` role).
+        prompt_loader_fn: Callable returning the L4 prompt template string.
+            Defaults to ``load_compress('l4_super_compact')``; injectable for
+            tests.
+
+    Returns:
+        Meta-block dict with keys ``block_id`` (``meta_<8hex>``), ``level``
+        (``1``), ``covers_rounds`` (``[first_block.start, last_block.end]``),
+        ``created_at`` (ISO 8601 UTC ``Z``), ``summary`` (analysis-stripped),
+        ``token_count`` (4:1 char approx), and ``source_blocks`` (input
+        ``block_id`` list, preserving order).
+
+    Raises:
+        ValueError: If ``blocks`` is empty or has fewer than two entries.
+    """
+    if len(blocks) < 2:
+        raise ValueError(f"l4_super_compact requires at least 2 blocks, got {len(blocks)}")
+
+    template = (prompt_loader_fn or (lambda: load_compress("l4_super_compact")))()
+
+    first_start = blocks[0]["covers_rounds"][0]
+    last_end = blocks[-1]["covers_rounds"][1]
+    total_rounds = last_end - first_start + 1
+
+    def _fmt(b: dict[str, Any]) -> str:
+        bid = b["block_id"]
+        rs, re_ = b["covers_rounds"]
+        return f"### {bid} (轮次 {rs}-{re_})\n{b['summary']}"
+
+    block_summaries_joined = "\n\n".join(_fmt(b) for b in blocks)
+
+    system_prompt = (
+        template.replace("{N}", str(len(blocks)))
+        .replace("{total_rounds}", str(total_rounds))
+        .replace("{start}", str(first_start))
+        .replace("{end}", str(last_end))
+        .replace("{block_summaries_joined}", block_summaries_joined)
+    )
+
+    user_payload = [{"role": "user", "content": block_summaries_joined}]
+    raw_response = await llm.chat_completion(user_payload, system=system_prompt)
+    summary = _strip_analysis(raw_response)
+
+    return {
+        "block_id": f"meta_{uuid.uuid4().hex[:8]}",
+        "level": 1,
+        "covers_rounds": [first_start, last_end],
+        "created_at": _now_iso_z(),
+        "summary": summary,
+        "token_count": _estimate_tokens(summary),
+        "source_blocks": [b["block_id"] for b in blocks],
+    }
+
+
+__all__ = ["l3_collapse", "l4_super_compact"]

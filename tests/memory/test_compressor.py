@@ -1,6 +1,6 @@
-"""Tests for src/memory/compressor.py -- L3 Collapse.
+"""Tests for src/memory/compressor.py -- L3 Collapse + L4 Super-Compact.
 
-All acceptance criteria from PRD US-MEM-002 covered here.
+Covers acceptance criteria for PRD US-MEM-002 (L3) and US-MEM-004 (L4).
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.memory.compressor import l3_collapse
+from src.memory.compressor import l3_collapse, l4_super_compact
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -146,3 +146,157 @@ async def test_default_loader_used_when_none_supplied() -> None:
     # Just check the call happened and resulting block is well formed -- the
     # placeholder substitution already guards the template path.
     assert block["summary"] == "summary"
+
+
+# ---------------------------------------------------------------------------
+# L4 Super-Compact tests (US-MEM-004)
+# ---------------------------------------------------------------------------
+
+_L4_MINIMAL_TEMPLATE = (
+    "SYS: integrate {N} blocks covering {total_rounds} rounds ({start}-{end}).\n"
+    "<analysis>scratch only</analysis>\n"
+    "Blocks:\n{block_summaries_joined}"
+)
+
+
+def _make_block(block_id: str, start: int, end: int, summary: str = "s") -> dict[str, Any]:
+    return {
+        "block_id": block_id,
+        "level": 0,
+        "covers_rounds": [start, end],
+        "created_at": "2026-04-18T12:00:00Z",
+        "summary": summary,
+        "token_count": len(summary) // 4,
+    }
+
+
+_FOUR_BLOCKS = [
+    _make_block("block_aaaaaaaa", 1, 20, "summary A"),
+    _make_block("block_bbbbbbbb", 21, 40, "summary B"),
+    _make_block("block_cccccccc", 41, 60, "summary C"),
+    _make_block("block_dddddddd", 61, 80, "summary D"),
+]
+
+
+@pytest.mark.asyncio
+async def test_l4_block_id_shape() -> None:
+    llm = _mock_llm("pattern summary")
+    meta = await l4_super_compact(
+        _FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    assert re.fullmatch(r"meta_[0-9a-f]{8}", meta["block_id"])
+    assert meta["level"] == 1
+
+
+@pytest.mark.asyncio
+async def test_l4_source_blocks_preserves_order() -> None:
+    llm = _mock_llm("ok")
+    meta = await l4_super_compact(
+        _FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    assert meta["source_blocks"] == [b["block_id"] for b in _FOUR_BLOCKS]
+
+
+@pytest.mark.asyncio
+async def test_l4_covers_rounds_spans_first_start_to_last_end() -> None:
+    llm = _mock_llm("ok")
+    meta = await l4_super_compact(
+        _FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    assert meta["covers_rounds"] == [1, 80]
+
+
+@pytest.mark.asyncio
+async def test_l4_empty_blocks_raises_value_error() -> None:
+    llm = _mock_llm("ok")
+    with pytest.raises(ValueError):
+        await l4_super_compact([], llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE))
+
+
+@pytest.mark.asyncio
+async def test_l4_single_block_raises_value_error() -> None:
+    """A single block is not a pattern -- at least two blocks required."""
+    llm = _mock_llm("ok")
+    with pytest.raises(ValueError):
+        await l4_super_compact(
+            [_FOUR_BLOCKS[0]], llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+        )
+
+
+@pytest.mark.asyncio
+async def test_l4_analysis_block_stripped() -> None:
+    raw = (
+        "<analysis>\n"
+        "cross-block pattern detection scratch\n"
+        "</analysis>\n"
+        "## 长期模式摘要 (轮次 1-80)\n"
+        "- 用户画像: 安静、喜欢猫\n"
+    )
+    llm = _mock_llm(raw)
+    meta = await l4_super_compact(
+        _FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    assert "<analysis>" not in meta["summary"]
+    assert "长期模式摘要" in meta["summary"]
+    assert "用户画像" in meta["summary"]
+
+
+@pytest.mark.asyncio
+async def test_l4_placeholders_substituted_in_prompt() -> None:
+    llm = _mock_llm("ok")
+    await l4_super_compact(_FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE))
+    system = llm.chat_completion.call_args.kwargs["system"]
+    assert "integrate 4 blocks covering 80 rounds (1-80)" in system
+    assert "{N}" not in system
+    assert "{total_rounds}" not in system
+    assert "{start}" not in system
+    assert "{end}" not in system
+    assert "{block_summaries_joined}" not in system
+    # Each block's summary is included in the joined payload.
+    for b in _FOUR_BLOCKS:
+        assert b["summary"] in system
+        assert b["block_id"] in system
+
+
+@pytest.mark.asyncio
+async def test_l4_two_blocks_is_valid() -> None:
+    """Two is the minimum; different start/end but still produces a meta-block."""
+    llm = _mock_llm("pattern")
+    two_blocks = _FOUR_BLOCKS[:2]
+    meta = await l4_super_compact(
+        two_blocks, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    assert meta["covers_rounds"] == [1, 40]
+    assert meta["source_blocks"] == ["block_aaaaaaaa", "block_bbbbbbbb"]
+
+
+@pytest.mark.asyncio
+async def test_l4_default_loader_used_when_none_supplied() -> None:
+    """Without an injected loader, prompts/compress/l4_super_compact.txt is read."""
+    llm = _mock_llm("pattern summary")
+    meta = await l4_super_compact(_FOUR_BLOCKS, llm)
+    assert meta["summary"] == "pattern summary"
+    assert llm.chat_completion.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_l4_created_at_is_iso_with_z() -> None:
+    from datetime import datetime
+
+    llm = _mock_llm("s")
+    meta = await l4_super_compact(
+        _FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    ts = meta["created_at"]
+    assert ts.endswith("Z")
+    parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    assert parsed.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_l4_token_count_is_char_approximation() -> None:
+    llm = _mock_llm("x" * 200)
+    meta = await l4_super_compact(
+        _FOUR_BLOCKS, llm, prompt_loader_fn=_fake_loader(_L4_MINIMAL_TEMPLATE)
+    )
+    assert meta["token_count"] == 50
