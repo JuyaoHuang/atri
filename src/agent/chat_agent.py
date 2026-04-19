@@ -49,10 +49,27 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+from loguru import logger
+
 from src.agent.persona import Persona
 from src.llm.exceptions import LLMError
 from src.llm.interface import LLMInterface
 from src.memory.manager import MemoryManager
+
+# Threshold below which a successful (non-errored) LLM reply is deemed
+# "suspiciously short" and logged as WARNING. Chosen empirically: the atri
+# persona's shortest well-formed replies are ~30+ chars (opening with
+# "（动作）" bracket + body). A reply stripped to <10 chars is almost
+# certainly an upstream truncation (observed cases: 1 single "（"). The
+# log is purely observational -- it does NOT change commit / trigger
+# behavior. Future iterations may promote this to a retry / error path
+# based on real-world frequency data gathered via these WARNINGs.
+# 成功路径下 LLM 回复被视为"可疑过短"并打 WARNING 的阈值。经验选取：atri
+# persona 最短的完整回复约 30+ 字符（以"（动作）"括号开头 + 正文）。
+# 剥离空白后 <10 字符几乎必然是上游截断（实测案例：单个 "（"）。日志纯
+# 观察性——**不改变**提交 / 触发行为。未来可依据真实频率数据再决定是否
+# 升级为重试 / 错误路径。
+_SUSPICIOUS_REPLY_MIN_CHARS = 10
 
 
 class ChatAgent:
@@ -166,6 +183,28 @@ class ChatAgent:
             return
 
         reply = "".join(reply_chunks)
+
+        # Observational WARNING when a successful (non-errored) stream yields
+        # a suspiciously short reply — almost always an upstream truncation
+        # (e.g., DeepSeek/SiliconFlow occasionally closes stream after 1 token
+        # with finish_reason=length/content_filter). Does NOT change behavior:
+        # the round is still committed via on_round_complete so chat_history /
+        # recent_messages stay honest. Frontend / TTS may see a single "（".
+        # 成功（非错误）路径下 stream 产出"可疑过短"回复时打 WARNING——几乎
+        # 总是上游截断（如 DeepSeek/SiliconFlow 偶发在 1 token 后关流，
+        # finish_reason=length/content_filter）。**不改变**行为：仍会通过
+        # on_round_complete 提交，使 chat_history / recent_messages 忠实记录。
+        # 前端 / TTS 可能看到单个 "（"。
+        if len(reply.strip()) < _SUSPICIOUS_REPLY_MIN_CHARS:
+            logger.warning(
+                "ChatAgent suspiciously short LLM reply | character={} | "
+                "user_id={} | len={} | reply={!r} | possible upstream truncation",
+                self.persona.character_id,
+                self.memory_manager.user_id,
+                len(reply),
+                reply,
+            )
+
         await self.memory_manager.on_round_complete(
             {"role": "human", "content": user_input},
             {"role": "ai", "content": reply, "name": self.persona.name},
