@@ -22,16 +22,16 @@ short_term:
   super_compact:
     trigger_blocks: 4                # every N level-0 blocks triggers L4
 
-  # Compressor role mapping -- references llm_config.yaml#llm_roles
+  # Compressor role mapping -- references llm_config.yaml#llm_roles.
+  # Prompt templates are resolved automatically by prompts/prompt_loader.py
+  # (load_compress('l3_collapse') / load_compress('l4_super_compact')).
   compressor:
     l3_role: l3_compress
     l4_role: l4_compact
-    l3_prompt_template: prompts/l3_collapse.txt
-    l4_prompt_template: prompts/l4_super_compact.txt
 
 # --- Long-term memory: mem0 ---
 mem0:
-  mode: local_deploy                 # "sdk" | "local_deploy"
+  mode: sdk                 # "sdk" | "local_deploy"
 
   # --- Mode A: mem0 SaaS ---
   sdk:
@@ -63,11 +63,13 @@ mem0:
       ollama:
         model: qwen2.5:7b
         base_url: http://localhost:11434
+        temperature: 0.3             # fact extraction prefers low temperature for stable JSON
       api:
         provider: openai
         model: gpt-4o-mini
         api_key: ${OPENAI_API_KEY}
         base_url: https://api.openai.com/v1
+        temperature: 0.3             # fact extraction prefers low temperature for stable JSON
 
     # Graph Memory -- MVP disabled, structure reserved
     graph_store:

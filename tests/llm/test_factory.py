@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 from typing import Any
 
 import pytest
@@ -19,7 +19,7 @@ from src.llm.interface import LLMInterface
 
 
 @pytest.fixture(autouse=True)
-def _snapshot_registry() -> None:
+def _snapshot_registry() -> Generator[None, None, None]:
     """Preserve the registry across tests so production providers stay intact."""
     before = dict(LLMFactory._registry)
     yield
