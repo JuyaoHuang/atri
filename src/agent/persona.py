@@ -143,7 +143,7 @@ def load_persona(character_id: str) -> Persona:
     加载 ``prompts/persona/{character_id}.md`` 并返回一个 :class:`Persona`。
 
     参数：
-        character_id：角色标识，同时也是 markdown 文件名词干。
+        character_id：角色标识，同时也是 markdown 文件名
 
     返回：
         一个字段完整的 :class:`Persona`。frontmatter 缺失字段的默认值为
