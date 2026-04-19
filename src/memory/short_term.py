@@ -21,10 +21,11 @@ final path, so a crashed save never leaves a half-written primary file.
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from src.memory._io_utils import atomic_replace
 
 _FILENAME = "short_term_memory.json"
 
@@ -82,7 +83,7 @@ class ShortTermStore:
         try:
             with tmp.open("w", encoding="utf-8") as f:
                 json.dump(out, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.path)
+            atomic_replace(tmp, self.path)
         except Exception:
             # Best-effort cleanup of the partial tmp file; propagate the error.
             try:

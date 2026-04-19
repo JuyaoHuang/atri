@@ -21,13 +21,14 @@ US-MEM-008 ``resume_session`` robust when a partial write was interrupted.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+from src.memory._io_utils import atomic_replace
 
 _SESSIONS_SUBDIR = "sessions"
 
@@ -154,7 +155,7 @@ class ChatHistoryWriter:
         try:
             with tmp.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.path)
+            atomic_replace(tmp, self.path)
         except Exception:
             try:
                 if tmp.exists():
