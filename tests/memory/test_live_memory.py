@@ -112,7 +112,7 @@ async def test_live_memory_manager_full_flow(tmp_path: Path) -> None:
     config = _memory_config_sdk(env["MEM0_API_KEY"])
 
     long_term = LongTermMemory(config["mem0"])
-    _, factory = _make_live_llm_factory(env)
+    live_llm, factory = _make_live_llm_factory(env)
 
     mgr = MemoryManager(
         config,
@@ -154,5 +154,35 @@ async def test_live_memory_manager_full_flow(tmp_path: Path) -> None:
     assert messages[-1] == {"role": "user", "content": "好的，继续聊"}
     # Structure check: at least the 1 active block + 12 recent msgs + user.
     assert len(messages) >= 14
+
+    # Recall probes -- drive the real LLM on top of the built context so we
+    # validate that the compressed L3 summary + mem0 facts + recent tail
+    # together give the model enough signal to recall concrete facts from
+    # earlier rounds. Without probes, the test only proves the pipeline
+    # wires up; probes prove memory actually works end-to-end.
+    persona = (
+        "你是情感陪伴 AI atri。请基于你记得的关于用户的事实，直接、简短地回答。"
+        "不要编造；如果记得就说出来，不记得就坦诚说不记得。"
+    )
+
+    probe_drink = await mgr.build_llm_context(
+        "你还记得我最爱什么饮品吗？",
+        system_prompt=persona,
+    )
+    reply_drink = await live_llm.chat_completion(probe_drink)
+    print(f"\n[recall probe - drink] {reply_drink!r}")
+    assert "奶茶" in reply_drink, (
+        f"LLM failed to recall the favorite drink (expected '奶茶'); got: {reply_drink!r}"
+    )
+
+    probe_pet = await mgr.build_llm_context(
+        "我之前说过我的宠物叫什么名字？",
+        system_prompt=persona,
+    )
+    reply_pet = await live_llm.chat_completion(probe_pet)
+    print(f"[recall probe - pet] {reply_pet!r}")
+    assert "毛毛" in reply_pet, (
+        f"LLM failed to recall the pet name (expected '毛毛'); got: {reply_pet!r}"
+    )
 
     long_term.close()
