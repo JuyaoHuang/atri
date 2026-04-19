@@ -840,3 +840,117 @@ async def test_build_llm_context_does_not_call_llm(tmp_path: Path) -> None:
     await mgr.build_llm_context("hello", system_prompt="s")
     shared_llm.chat_completion.assert_not_awaited()
     assert factory_calls == []
+
+
+# ---------------------------------------------------------------------------
+# append_system_note (US-AGT-002 — Phase 4 error-path support)
+# append_system_note（US-AGT-002——Phase 4 错误路径支持）
+# ---------------------------------------------------------------------------
+
+
+def test_append_system_note_writes_system_row(tmp_path: Path) -> None:
+    """A call appends exactly one role=system entry with the given content.
+
+    一次调用在 chat_history 末尾追加一条 role=system 记录，content 等于入参。
+    """
+    mgr = _new_manager(tmp_path)
+    assert mgr.chat_history is not None
+    before = list(mgr.chat_history.iter_messages())
+
+    mgr.append_system_note("[LLM call failed: LLMConnectionError: timeout]")
+
+    after = list(mgr.chat_history.iter_messages())
+    assert len(after) == len(before) + 1
+    last = after[-1]
+    assert last["role"] == "system"
+    assert last["content"] == "[LLM call failed: LLMConnectionError: timeout]"
+
+
+def test_append_system_note_does_not_mutate_total_rounds(tmp_path: Path) -> None:
+    """Calling append_system_note leaves total_rounds untouched.
+
+    调用 append_system_note 后 total_rounds 保持不变。
+    """
+    mgr = _new_manager(tmp_path)
+    mgr.state["total_rounds"] = 7
+
+    mgr.append_system_note("note A")
+    mgr.append_system_note("note B")
+
+    assert mgr.state["total_rounds"] == 7
+
+
+def test_append_system_note_does_not_mutate_recent_messages(tmp_path: Path) -> None:
+    """Calling append_system_note leaves recent_messages identity and contents intact.
+
+    调用后 recent_messages 的标识和内容都保持不变。
+    """
+    mgr = _new_manager(tmp_path)
+    seed = [{"role": "human", "content": "hi"}, {"role": "ai", "content": "hello"}]
+    mgr.state["recent_messages"] = seed
+
+    mgr.append_system_note("note")
+
+    assert mgr.state["recent_messages"] is seed
+    assert mgr.state["recent_messages"] == [
+        {"role": "human", "content": "hi"},
+        {"role": "ai", "content": "hello"},
+    ]
+
+
+def test_append_system_note_does_not_trigger_compression(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even with state that would normally trip L3/L4, append_system_note must not fire them.
+
+    即便状态已达 L3/L4 触发条件，append_system_note 也绝不触发压缩。
+    """
+    l3_mock = AsyncMock()
+    l4_mock = AsyncMock()
+    monkeypatch.setattr("src.memory.manager.l3_collapse", l3_mock)
+    monkeypatch.setattr("src.memory.manager.l4_super_compact", l4_mock)
+
+    mgr = _new_manager(tmp_path)
+    # Arrange state that would trigger L3 on round-complete AND L4 on a subsequent check.
+    # 构造足以触发 L3（轮次倍数）且满足 L4（active_blocks>=trigger）的状态。
+    mgr.state["total_rounds"] = 26
+    mgr.state["active_blocks"] = [
+        {"block_id": f"b{i}", "summary": "s", "covers_rounds": [0, 0]} for i in range(4)
+    ]
+
+    mgr.append_system_note("note")
+
+    l3_mock.assert_not_called()
+    l4_mock.assert_not_called()
+
+
+def test_append_system_note_multiple_calls_append_multiple_rows(tmp_path: Path) -> None:
+    """Consecutive calls are not deduped; each produces a new chat_history row.
+
+    连续调用不会去重，每次都追加新行。
+    """
+    mgr = _new_manager(tmp_path)
+    assert mgr.chat_history is not None
+    before = len(list(mgr.chat_history.iter_messages()))
+
+    mgr.append_system_note("note A")
+    mgr.append_system_note("note A")  # same content, intentionally
+    mgr.append_system_note("note B")
+
+    entries = list(mgr.chat_history.iter_messages())
+    assert len(entries) == before + 3
+    system_contents = [e["content"] for e in entries if e["role"] == "system"]
+    assert system_contents[-3:] == ["note A", "note A", "note B"]
+
+
+@pytest.mark.asyncio
+async def test_append_system_note_asserts_when_no_active_session(tmp_path: Path) -> None:
+    """After close_session, append_system_note raises AssertionError.
+
+    close_session 之后调用 append_system_note 抛 AssertionError。
+    """
+    mgr = _new_manager(tmp_path)
+    await mgr.close_session()
+
+    with pytest.raises(AssertionError, match="no active session"):
+        mgr.append_system_note("stray")

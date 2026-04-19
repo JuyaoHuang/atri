@@ -2,15 +2,21 @@
 
 Initializes the logger, loads the root config, then resolves each of the
 three configured LLM call-sites (``chat``, ``l3_compress``, ``l4_compact``)
-via the role-based factory. Instantiating the LLM clients does not touch
-the network -- only construction; actual requests happen later in the
-agent/memory layers.
+via the role-based factory, constructs a :class:`ServiceContext`, and
+materializes a single ChatAgent for the ``atri`` character as a wiring
+smoke test. **No network requests happen** -- we only construct clients
+and verify role resolution; the actual LLM / mem0 calls happen later in
+the agent/memory layers during a real conversation.
 
-Startup also wires a :class:`MemoryManager` so we can verify the memory
-subsystem constructs cleanly. Long-term (:class:`LongTermMemory`)
-construction is best-effort: in ``local_deploy`` mode it may hit
-Qdrant/Ollama, so any failure downgrades to a WARNING and the manager
-runs without long-term context (short-term compression still works).
+Startup sequence:
+
+1. ``init_logger()`` / ``load_dotenv()``
+2. ``load_config()`` on ``config.yaml``
+3. Resolve 3 LLM roles (chat / l3_compress / l4_compact) for logging
+4. Construct :class:`ServiceContext` (holds config, empty agent cache)
+5. ``ctx.get_or_create_agent("atri", user_id="main_demo")`` to build one
+   ChatAgent end-to-end (Persona + LongTermMemory + MemoryManager + LLM)
+6. Log ``ChatAgent ready | character=atri | persona={name} | long_term={on|off}``
 
 Run::
 
@@ -18,31 +24,27 @@ Run::
 
 应用程序入口点。
 
-初始化日志记录器，加载根配置，然后通过基于角色的工厂解析三个已配置的
-LLM 调用位点 (``chat``、``l3_compress``、``l4_compact``) 中的每一个。
-实例化 LLM 客户端不会触发网络请求——仅执行构造；实际请求稍后在
-agent/memory 层中发生。
+初始化日志记录器，加载根配置，通过基于角色的工厂解析三个已配置的 LLM 调用
+位点（``chat`` / ``l3_compress`` / ``l4_compact``），构造
+:class:`ServiceContext`，并为 ``atri`` 角色物化一个 ChatAgent 作为接线
+冒烟测试。**不触发任何网络请求**——只构造客户端并验证角色解析；真正的
+LLM / mem0 调用稍后在真实对话中由 agent/memory 层发起。
 
-运行方式::
-
-    uv run python -m src.main
-
-Reference: docs/项目架构设计.md §2.2, docs/LLM调用层设计讨论.md §2.3,
-docs/记忆系统设计讨论.md §6.1
+Reference: docs/项目架构设计.md §2.2, §2.5,
+docs/LLM调用层设计讨论.md §2.3,
+docs/记忆系统设计讨论.md §6.1,
+docs/Phase4_执行规格.md §US-AGT-006
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
 
 from src.llm import create_from_role
-from src.llm.interface import LLMInterface
-from src.memory.long_term import LongTermMemory
-from src.memory.manager import MemoryManager
+from src.service_context import ServiceContext
 from src.utils.config_loader import load_config
 from src.utils.logger import init_logger
 
@@ -52,48 +54,7 @@ _DEFAULT_ENV = _REPO_ROOT / ".env"
 
 _LLM_ROLES = ("chat", "l3_compress", "l4_compact")
 _DEMO_CHARACTER = "atri"
-_DEMO_USER_ID = "default"
-
-
-def _make_llm_factory_fn(llm_config: dict[str, Any]):
-    """Return a ``role -> LLMInterface`` closure for :class:`MemoryManager`.
-
-    返回一个供 :class:`MemoryManager` 使用的 ``role -> LLMInterface`` 闭包。
-    """
-
-    def factory(role: str) -> LLMInterface:
-        return create_from_role(role, llm_config)
-
-    return factory
-
-
-def _safe_build_long_term(mem0_config: dict[str, Any]) -> LongTermMemory | None:
-    """Best-effort :class:`LongTermMemory` construction.
-
-    In ``local_deploy`` mode, ``Memory.from_config`` may ping Qdrant/Ollama
-    as part of initialization -- if those backends are not running during a
-    cold start, we log a WARNING and return ``None`` so the rest of the
-    startup can proceed. Short-term compression still works fully.
-
-    尽力而为地构造 :class:`LongTermMemory`。
-
-    在 ``local_deploy`` 模式下，``Memory.from_config`` 初始化时可能会访问
-    Qdrant/Ollama——如果在冷启动阶段这些后端尚未运行，我们记录 WARNING 并
-    返回 ``None``，以便后续启动流程继续推进。短期压缩仍可完整工作。
-    """
-    if not mem0_config:
-        logger.warning("mem0 config missing; skipping LongTermMemory construction")
-        return None
-    try:
-        return LongTermMemory(mem0_config)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "LongTermMemory construction failed (continuing without long-term "
-            "memory) | mode={} error={!r}",
-            mem0_config.get("mode"),
-            exc,
-        )
-        return None
+_DEMO_USER_ID = "main_demo"
 
 
 def main() -> None:
@@ -120,29 +81,26 @@ def main() -> None:
             getattr(llm, "model", "n/a"),
         )
 
-    memory_config = config.get("memory", {})
-    mem0_cfg = memory_config.get("mem0", {})
-    mem0_mode = mem0_cfg.get("mode", "local_deploy")
-
-    long_term = _safe_build_long_term(mem0_cfg)
-
     try:
-        MemoryManager(
-            memory_config,
-            _make_llm_factory_fn(llm_config),
-            character=_DEMO_CHARACTER,
-            user_id=_DEMO_USER_ID,
-            long_term=long_term,
-        )
+        ctx = ServiceContext(config)
+        agent = ctx.get_or_create_agent(_DEMO_CHARACTER, user_id=_DEMO_USER_ID)
     except Exception as exc:  # noqa: BLE001
-        logger.error("MemoryManager construction failed | error={!r}", exc)
+        logger.error("ServiceContext / ChatAgent construction failed | error={!r}", exc)
         return
 
+    mgr = agent.memory_manager
+    mem0_mode = config.get("memory", {}).get("mem0", {}).get("mode", "local_deploy")
     logger.info(
         "MemoryManager ready | mode={} | character={} | long_term={}",
         mem0_mode,
         _DEMO_CHARACTER,
-        "on" if long_term is not None else "off",
+        "on" if mgr.long_term is not None else "off",
+    )
+    logger.info(
+        "ChatAgent ready | character={} | persona={} | long_term={}",
+        _DEMO_CHARACTER,
+        agent.persona.name,
+        "on" if mgr.long_term is not None else "off",
     )
 
 

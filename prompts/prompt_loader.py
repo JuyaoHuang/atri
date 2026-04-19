@@ -5,13 +5,14 @@ layout mirrors Open-LLM-VTuber's convention:
 
     prompts/
       prompt_loader.py    (this module)
-      compress/           L3/L4 compression prompts (Phase 3)
-      persona/            Character persona prompts (Phase 4)
-      utils/              Utility prompts: live2d / speakable / etc. (Phase 4)
+      compress/           L3/L4 compression prompts (.txt, Phase 3)
+      persona/            Character persona markdown files (.md, Phase 4)
+      utils/              Utility prompts (.txt, Phase 4+)
 
-All loaders look for ``{name}.txt`` inside the corresponding subdirectory and
-tolerate UTF-8 BOM via ``encoding='utf-8-sig'``. Missing files raise
-``FileNotFoundError`` with the full attempted path.
+All loaders tolerate UTF-8 BOM via ``encoding='utf-8-sig'`` and raise
+``FileNotFoundError`` with the full attempted path when the target is absent.
+The persona loader returns raw markdown text (including any frontmatter);
+structured parsing lives in :mod:`src.agent.persona`.
 """
 
 from __future__ import annotations
@@ -39,11 +40,13 @@ def load_compress(name: str) -> str:
 
 
 def load_persona(name: str) -> str:
-    """Load a character persona prompt by name.
+    """Load a character persona markdown file as raw text.
 
-    Example: ``load_persona('katou')`` reads ``prompts/persona/katou.txt``.
+    Example: ``load_persona('atri')`` reads ``prompts/persona/atri.md``
+    and returns its full contents (frontmatter + body) unparsed. The
+    structured parser lives in :func:`src.agent.persona.load_persona`.
     """
-    return _read(_PERSONA_DIR / f"{name}.txt")
+    return _read(_PERSONA_DIR / f"{name}.md")
 
 
 def load_util(name: str) -> str:

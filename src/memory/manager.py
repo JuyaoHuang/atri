@@ -587,6 +587,40 @@ class MemoryManager:
         self.short_term_store.save(self._state)
 
     # ------------------------------------------------------------------
+    # System-level annotations (Phase 4 error path)
+    # 系统级标注（Phase 4 错误路径）
+    # ------------------------------------------------------------------
+
+    def append_system_note(self, content: str) -> None:
+        """Append a ``role=system`` row to ``chat_history`` without touching state.
+
+        Used by :class:`src.agent.chat_agent.ChatAgent`'s error path: when the
+        LLM call raises :class:`src.llm.exceptions.LLMError`, the agent records
+        the failure here so the frontend can render it, but the round is **not**
+        counted -- ``total_rounds`` and ``recent_messages`` stay untouched, no
+        L3/L4 trigger fires, and nothing outside the append itself is persisted
+        (short-term state is unchanged, so no ``short_term_store.save``).
+
+        Synchronous by design: :meth:`ChatHistoryWriter.append_system` is a
+        plain file append, and callers already hold the event-loop context from
+        their surrounding async path.
+
+        在 chat_history 追加一条 ``role=system`` 记录，不影响任何状态。
+
+        供 :class:`src.agent.chat_agent.ChatAgent` 错误路径使用：当 LLM 调用
+        抛出 :class:`src.llm.exceptions.LLMError` 时，Agent 在此处记录失败，
+        使前端能够渲染；但该轮**不**计数——``total_rounds`` 和
+        ``recent_messages`` 保持不变，不触发 L3/L4，也不产生除 append 本身
+        之外的持久化（short-term 状态未变，因此不会调用
+        ``short_term_store.save``）。
+
+        设计为同步方法：:meth:`ChatHistoryWriter.append_system` 仅是普通的
+        文件追加，调用方的异步上下文由外部持有。
+        """
+        assert self.chat_history is not None, "MemoryManager has no active session"
+        self.chat_history.append_system(content)
+
+    # ------------------------------------------------------------------
     # L3 / L4 triggers
     # L3 / L4 触发器
     # ------------------------------------------------------------------
