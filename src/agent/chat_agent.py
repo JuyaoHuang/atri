@@ -50,6 +50,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from src.agent.persona import Persona
+from src.llm.exceptions import LLMError
 from src.llm.interface import LLMInterface
 from src.memory.manager import MemoryManager
 
@@ -145,9 +146,24 @@ class ChatAgent:
         )
 
         reply_chunks: list[str] = []
-        async for chunk in self.llm.chat_completion_stream(messages):
-            reply_chunks.append(chunk)
-            yield chunk
+        try:
+            async for chunk in self.llm.chat_completion_stream(messages):
+                reply_chunks.append(chunk)
+                yield chunk
+        except LLMError as exc:
+            # Error path (S4): surface the failure to the caller as a final
+            # sentinel chunk, persist it as a chat_history system row, and
+            # bail out WITHOUT counting the round. `append_system_note` does
+            # not touch total_rounds / recent_messages / triggers (see
+            # MemoryManager.append_system_note invariants).
+            # 错误路径（S4）：将失败作为末尾的哨兵 chunk 告知调用方，持久化
+            # 为 chat_history 的 system 行，并在**不**计入轮次的情况下退出。
+            # `append_system_note` 不触碰 total_rounds / recent_messages /
+            # 触发器（见 MemoryManager.append_system_note 的不变式）。
+            error_text = f"[LLM call failed: {type(exc).__name__}: {exc}]"
+            yield error_text
+            self.memory_manager.append_system_note(error_text)
+            return
 
         reply = "".join(reply_chunks)
         await self.memory_manager.on_round_complete(

@@ -25,6 +25,12 @@ import pytest
 
 from src.agent.chat_agent import ChatAgent
 from src.agent.persona import Persona
+from src.llm.exceptions import (
+    LLMAPIError,
+    LLMConnectionError,
+    LLMError,
+    LLMRateLimitError,
+)
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -286,3 +292,163 @@ async def test_empty_stream_still_commits_round_with_empty_reply() -> None:
     agent.memory_manager.on_round_complete.assert_awaited_once()
     _user_msg, ai_msg = agent.memory_manager.on_round_complete.await_args.args
     assert ai_msg["content"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Error-path tests (US-AGT-004) -- LLMError from the stream
+# 错误路径测试（US-AGT-004）——流中的 LLMError
+# ---------------------------------------------------------------------------
+
+
+import re  # noqa: E402  -- deliberately local to the error-path section
+
+
+async def _astream_then_raise(chunks_before: list[str], exc: BaseException) -> AsyncIterator[str]:
+    """Yield ``chunks_before`` then raise ``exc`` on the next __anext__.
+
+    产出 ``chunks_before``，然后在下一次 __anext__ 时抛出 ``exc``。
+    """
+    for c in chunks_before:
+        yield c
+    raise exc
+
+
+def _make_failing_llm(
+    chunks_before: list[str],
+    exc: BaseException,
+) -> MagicMock:
+    """LLM mock whose stream yields ``chunks_before`` then raises ``exc``.
+
+    返回一个 LLM mock：流先产出 ``chunks_before``，再抛出 ``exc``。
+    """
+    llm = MagicMock()
+    llm.chat_completion_stream = MagicMock(
+        side_effect=lambda *a, **kw: _astream_then_raise(chunks_before, exc)
+    )
+    return llm
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "exc_cls",
+    [LLMConnectionError, LLMRateLimitError, LLMAPIError],
+)
+async def test_all_llmerror_subclasses_are_caught(exc_cls: type[LLMError]) -> None:
+    """LLMConnectionError / LLMRateLimitError / LLMAPIError all caught via
+    the LLMError base.
+
+    三个 LLMError 子类都能被 LLMError 基类捕获。
+    """
+    exc = exc_cls("boom")
+    agent = ChatAgent(_make_failing_llm([], exc), _make_mgr(), _persona())
+
+    received = [c async for c in agent.chat("hi")]
+
+    assert len(received) == 1
+    assert received[0].startswith("[LLM call failed: ")
+    assert exc_cls.__name__ in received[0]
+    agent.memory_manager.append_system_note.assert_called_once_with(received[0])
+    agent.memory_manager.on_round_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_immediate_failure_yields_single_error_chunk() -> None:
+    """First __anext__ raising -> chat() yields exactly one (error) chunk.
+
+    第一次 __anext__ 抛错时，chat() 恰好 yield 一个（错误）chunk。
+    """
+    agent = ChatAgent(
+        _make_failing_llm([], LLMConnectionError("network down")),
+        _make_mgr(),
+        _persona(),
+    )
+
+    received = [c async for c in agent.chat("hi")]
+
+    assert received == ["[LLM call failed: LLMConnectionError: network down]"]
+    agent.memory_manager.append_system_note.assert_called_once_with(received[0])
+    agent.memory_manager.on_round_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_partial_stream_preserves_yielded_chunks_before_error() -> None:
+    """Stream yields 'hello ' then raises -> caller sees ['hello ', error_text].
+
+    流先 yield 'hello ' 再抛错 -> 调用方收到 ['hello ', error_text]。
+    The already-yielded chunks are NOT re-committed via on_round_complete.
+    已 yield 的 chunks 不会通过 on_round_complete 再次提交。
+    """
+    agent = ChatAgent(
+        _make_failing_llm(["hello ", "world"], LLMAPIError("backend 500")),
+        _make_mgr(),
+        _persona(),
+    )
+
+    received = [c async for c in agent.chat("hi")]
+
+    assert received[:2] == ["hello ", "world"]
+    assert received[2] == "[LLM call failed: LLMAPIError: backend 500]"
+    assert len(received) == 3
+    agent.memory_manager.append_system_note.assert_called_once_with(received[2])
+    agent.memory_manager.on_round_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_error_text_format_matches_contract_regex() -> None:
+    """error_text matches r'^\\[LLM call failed: LLM[A-Za-z]+Error: .*\\]$'.
+
+    error_text 格式匹配 r'^\\[LLM call failed: LLM[A-Za-z]+Error: .*\\]$'。
+    """
+    agent = ChatAgent(
+        _make_failing_llm([], LLMRateLimitError("429 too many")),
+        _make_mgr(),
+        _persona(),
+    )
+
+    received = [c async for c in agent.chat("hi")]
+
+    assert len(received) == 1
+    assert re.match(r"^\[LLM call failed: LLM[A-Za-z]+Error: .*\]$", received[0])
+
+
+@pytest.mark.asyncio
+async def test_non_llmerror_exceptions_propagate_not_swallowed() -> None:
+    """ValueError from a buggy stream propagates -- chat() does not swallow it.
+
+    从 buggy 流中抛出的 ValueError 会被原样传播，chat() 不吞。
+    """
+    agent = ChatAgent(
+        _make_failing_llm([], ValueError("not an LLMError")),
+        _make_mgr(),
+        _persona(),
+    )
+
+    with pytest.raises(ValueError, match="not an LLMError"):
+        [_ async for _ in agent.chat("hi")]
+
+    # 既未尝试写 system note 也未提交本轮
+    # Neither system-note write nor round commit attempted.
+    agent.memory_manager.append_system_note.assert_not_called()
+    agent.memory_manager.on_round_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_collect_surfaces_error_sentinel_in_returned_string() -> None:
+    """chat_collect() also returns the error sentinel concatenated to any
+    partial chunks -- delegated via chat(), so the error path is shared.
+
+    chat_collect() 同样会把错误哨兵拼在任何 partial chunks 之后返回——因为
+    它委托给 chat()，错误路径是共用的。
+    """
+    agent = ChatAgent(
+        _make_failing_llm(["partial "], LLMAPIError("boom")),
+        _make_mgr(),
+        _persona(),
+    )
+
+    result = await agent.chat_collect("hi")
+
+    assert result.startswith("partial ")
+    assert "[LLM call failed: LLMAPIError: boom]" in result
+    agent.memory_manager.append_system_note.assert_called_once()
+    agent.memory_manager.on_round_complete.assert_not_awaited()
