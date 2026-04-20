@@ -140,9 +140,7 @@ wscat -c ws://localhost:8000/ws
 首先通过 REST API 创建聊天（在第三个终端）：
 
 ```bash
-curl -X POST http://localhost:8000/api/chats \
-  -H "Content-Type: application/json" \
-  -d '{"character_id": "atri", "first_message": "你好"}'
+Invoke-RestMethod -Uri http://localhost:8430/api/chats -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"character_id":"atri","first_message":"你好"}'
 ```
 
 记录返回的 `id` 字段（chat_id）。
