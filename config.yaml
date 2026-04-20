@@ -19,6 +19,8 @@
 
 llm_config: config/llm_config.yaml
 memory_config: config/memory_config.yaml
+server_config: config/server_config.yaml
+storage_config: config/storage_config.yaml
 
 # Reserved for future phases:
 # asr_config: config/asr_config.yaml

@@ -35,11 +35,14 @@ closing ``---`` 之后的正文原样作为 LLM system prompt。``character_id``
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 from prompts.prompt_loader import load_persona as _load_persona_text
+
+_PERSONA_DIR = Path(__file__).resolve().parent.parent.parent / "prompts" / "persona"
 
 
 @dataclass(frozen=True)
@@ -171,4 +174,23 @@ def load_persona(character_id: str) -> Persona:
     )
 
 
-__all__ = ["Persona", "load_persona"]
+def list_personas() -> list[str]:
+    """List all available character IDs by scanning ``prompts/persona/*.md``.
+
+    Returns:
+        List of character_id strings (filename stems without .md extension).
+        Empty list if the persona directory does not exist.
+
+    列出所有可用的角色 ID（扫描 ``prompts/persona/*.md``）。
+
+    返回：
+        角色 ID 字符串列表（不含 .md 扩展名的文件名）。
+        若 persona 目录不存在则返回空列表。
+    """
+    if not _PERSONA_DIR.is_dir():
+        return []
+
+    return sorted(p.stem for p in _PERSONA_DIR.glob("*.md") if p.is_file())
+
+
+__all__ = ["Persona", "load_persona", "list_personas"]

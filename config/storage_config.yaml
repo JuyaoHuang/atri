@@ -1,0 +1,22 @@
+# ============================================================
+# Chat Storage Configuration
+# 聊天存储配置
+#
+# mode: json | database
+#   - json: 本地 JSON 文件存储（Phase 5 默认）
+#   - database: 数据库存储（Phase 7 预留）
+#
+# Reference: docs/Phase5_执行规格.md §六
+# ============================================================
+
+mode: json
+
+json:
+  base_path: data/chats
+
+# Phase 7 预留，建议使用环境变量 ${DB_URL} 来配置数据库连接字符串
+# 推荐使用 neonDB https://console.neon.tech 的 postgresql
+database:
+  url: ${DB_NEON_URL}
+#   sqlite+aiosqlite:///data/atri.db
+#   # 或 postgresql+asyncpg://user:pass@localhost/atri

@@ -11,6 +11,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
     "uvicorn>=0.44.0",
+    "websockets>=16.0",
 ]
 
 [dependency-groups]
