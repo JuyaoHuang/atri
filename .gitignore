@@ -1,6 +1,6 @@
 .omc
 .idea
-
+data/chats/default/
 # Python
 __pycache__/
 *.pyc
