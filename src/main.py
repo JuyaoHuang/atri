@@ -53,7 +53,7 @@ _DEMO_CHARACTER = "atri"
 _DEMO_USER_ID = "main_demo"
 
 
-def main() -> None:
+async def main() -> None:
     init_logger()
     logger.info("atri starting")
 
@@ -81,11 +81,14 @@ def main() -> None:
 
     # Construct ServiceContext and ChatAgent for smoke test
     # 构造 ServiceContext 和 ChatAgent 用于冒烟测试
+    ctx = None
     try:
         ctx = ServiceContext(config)
         agent = ctx.get_or_create_agent(_DEMO_CHARACTER, user_id=_DEMO_USER_ID)
     except Exception as exc:  # noqa: BLE001
         logger.error("ServiceContext / ChatAgent construction failed | error={!r}", exc)
+        if ctx:
+            await ctx.close_all()
         return
 
     mgr = agent.memory_manager
@@ -115,10 +118,18 @@ def main() -> None:
 
     logger.info("Server starting | host={} | port={}", host, port)
 
-    # Start uvicorn server
-    # 启动 uvicorn 服务器
-    uvicorn.run(app, host=host, port=port)
+    try:
+        # Start uvicorn server
+        # 启动 uvicorn 服务器
+        uvicorn.run(app, host=host, port=port)
+    finally:
+        # Cleanup smoke test context
+        # 清理冒烟测试上下文
+        logger.info("Cleaning up smoke test ServiceContext")
+        await ctx.close_all()
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+
+    asyncio.run(main())

@@ -120,7 +120,7 @@ def create_app(config: dict) -> FastAPI:
     from src.routes.chats import router as chats_router
     from src.routes.health import router as health_router
 
-    app.include_router(health_router, prefix="/api")
+    app.include_router(health_router)
     app.include_router(characters_router)
     app.include_router(chats_router)
 

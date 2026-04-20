@@ -117,6 +117,8 @@ class JSONChatStorage(ChatStorageInterface):
     async def get_chat(self, chat_id: str) -> dict | None:
         """Get chat metadata by ID (requires scanning all user directories)."""
         # Note: This is inefficient for production use. Phase 7 database will fix this.
+        if not self.base_path.is_dir():
+            return None
         for user_dir in self.base_path.iterdir():
             if not user_dir.is_dir():
                 continue
@@ -132,6 +134,8 @@ class JSONChatStorage(ChatStorageInterface):
     async def update_chat(self, chat_id: str, **kwargs: str) -> dict:
         """Update chat metadata (title, etc.)."""
         # Find the chat in index
+        if not self.base_path.is_dir():
+            raise ValueError(f"Chat {chat_id} not found")
         for user_dir in self.base_path.iterdir():
             if not user_dir.is_dir():
                 continue
@@ -155,6 +159,8 @@ class JSONChatStorage(ChatStorageInterface):
     async def delete_chat(self, chat_id: str) -> None:
         """Delete chat session."""
         # Find and remove from index
+        if not self.base_path.is_dir():
+            raise ValueError(f"Chat {chat_id} not found")
         for user_dir in self.base_path.iterdir():
             if not user_dir.is_dir():
                 continue
