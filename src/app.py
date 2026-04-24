@@ -37,9 +37,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from src.service_context import ServiceContext
+from src.storage.character_storage import CharacterStorage, get_default_character_avatar_dir
 from src.storage.factory import create_chat_storage
 
 
@@ -97,6 +99,15 @@ def create_app(config: dict) -> FastAPI:
     # Store config in app state for lifespan access
     # 将配置存储在 app state 中供 lifespan 访问
     app.state.config = config
+    app.state.character_storage = CharacterStorage()
+
+    avatar_dir = get_default_character_avatar_dir()
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/api/assets/avatars",
+        StaticFiles(directory=str(avatar_dir), check_dir=False),
+        name="character-avatar-assets",
+    )
 
     # Configure CORS
     # 配置 CORS

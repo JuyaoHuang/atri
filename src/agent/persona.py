@@ -35,6 +35,7 @@ closing ``---`` 之后的正文原样作为 LLM system prompt。``character_id``
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,33 @@ class Persona:
     avatar: str | None
     greeting: str | None
     system_prompt: str
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    managed_by: str | None = None
+
+
+def _coerce_optional_text(value: Any) -> str | None:
+    """Normalize optional metadata to stripped strings."""
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        text = value.isoformat()
+    elif isinstance(value, date):
+        text = value.isoformat()
+    else:
+        text = str(value).strip()
+
+    return text or None
+
+
+def _coerce_optional_timestamp(value: Any) -> str | None:
+    """Normalize YAML timestamp values to stable ISO-like strings."""
+    text = _coerce_optional_text(value)
+    if text is None:
+        return None
+    return text.replace("+00:00", "Z")
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
@@ -125,6 +153,39 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return meta, body
 
 
+def parse_persona_text(character_id: str, text: str) -> Persona:
+    """Parse persona markdown content into a Persona instance."""
+    meta, body = _split_frontmatter(text)
+
+    name = meta.get("name", character_id)
+    avatar = meta.get("avatar")
+    greeting = meta.get("greeting")
+    description = meta.get("description")
+    created_at = meta.get("created_at")
+    updated_at = meta.get("updated_at")
+    managed_by = meta.get("managed_by")
+
+    return Persona(
+        character_id=character_id,
+        name=str(name),
+        avatar=_coerce_optional_text(avatar),
+        greeting=_coerce_optional_text(greeting),
+        system_prompt=body,
+        description=_coerce_optional_text(description),
+        created_at=_coerce_optional_timestamp(created_at),
+        updated_at=_coerce_optional_timestamp(updated_at),
+        managed_by=_coerce_optional_text(managed_by),
+    )
+
+
+def load_persona_from_path(path: Path) -> Persona:
+    """Load persona markdown from an explicit file path."""
+    if not path.is_file():
+        raise FileNotFoundError(f"Persona file not found: {path}")
+
+    return parse_persona_text(path.stem, path.read_text(encoding="utf-8-sig"))
+
+
 def load_persona(character_id: str) -> Persona:
     """Load ``prompts/persona/{character_id}.md`` and return a :class:`Persona`.
 
@@ -159,19 +220,7 @@ def load_persona(character_id: str) -> Persona:
         ValueError：当 frontmatter 格式不合法时（见 :func:`_split_frontmatter`）。
     """
     text = _load_persona_text(character_id)
-    meta, body = _split_frontmatter(text)
-
-    name = meta.get("name", character_id)
-    avatar = meta.get("avatar")
-    greeting = meta.get("greeting")
-
-    return Persona(
-        character_id=character_id,
-        name=str(name),
-        avatar=str(avatar) if avatar is not None else None,
-        greeting=str(greeting) if greeting is not None else None,
-        system_prompt=body,
-    )
+    return parse_persona_text(character_id, text)
 
 
 def list_personas() -> list[str]:
@@ -193,4 +242,10 @@ def list_personas() -> list[str]:
     return sorted(p.stem for p in _PERSONA_DIR.glob("*.md") if p.is_file())
 
 
-__all__ = ["Persona", "load_persona", "list_personas"]
+__all__ = [
+    "Persona",
+    "load_persona",
+    "load_persona_from_path",
+    "list_personas",
+    "parse_persona_text",
+]
