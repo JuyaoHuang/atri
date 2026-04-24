@@ -20,6 +20,30 @@ ALLOWED_AVATAR_CONTENT_TYPES = {
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
 }
+WINDOWS_RESERVED_FILENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "COM1",
+    "COM2",
+    "COM3",
+    "COM4",
+    "COM5",
+    "COM6",
+    "COM7",
+    "COM8",
+    "COM9",
+    "LPT1",
+    "LPT2",
+    "LPT3",
+    "LPT4",
+    "LPT5",
+    "LPT6",
+    "LPT7",
+    "LPT8",
+    "LPT9",
+}
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_PERSONA_DIR = _PROJECT_ROOT / "prompts" / "persona"
@@ -81,10 +105,27 @@ def _now_iso_z() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _slugify_character_id(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
-    normalized = normalized.strip("-")
+def _normalize_character_id(value: str) -> str:
+    """Normalize user-facing names into filesystem-safe custom IDs.
+
+    保留 Unicode 名称本身，仅移除 Windows 不允许的文件名字符。
+    """
+    normalized = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "-", value.strip())
+    normalized = re.sub(r"\s+", " ", normalized).strip(" .")
+    if normalized.upper() in WINDOWS_RESERVED_FILENAMES:
+        normalized = f"{normalized}_"
     return normalized
+
+
+def _validate_custom_character_name(name: str) -> None:
+    """Validate custom character names for safe filename generation.
+
+    允许任意语言的字母与数字，但不允许空格、标点和特殊符号。
+    """
+    if not name or any(not char.isalnum() for char in name):
+        raise CharacterStorageError(
+            "Character name may contain only letters and digits, without spaces or symbols"
+        )
 
 
 class CharacterStorage:
@@ -134,6 +175,7 @@ class CharacterStorage:
         if not clean_system_prompt:
             raise CharacterStorageError("System prompt cannot be empty")
 
+        _validate_custom_character_name(clean_name)
         self._ensure_unique_name(clean_name)
         resolved_id = self._resolve_character_id(character_id, clean_name)
         now = _now_iso_z()
@@ -177,6 +219,8 @@ class CharacterStorage:
         if not next_system_prompt:
             raise CharacterStorageError("System prompt cannot be empty")
 
+        if not current.is_system:
+            _validate_custom_character_name(next_name)
         self._ensure_unique_name(next_name, ignore_character_id=character_id)
 
         record = CharacterRecord(
@@ -275,7 +319,7 @@ class CharacterStorage:
 
     def _resolve_character_id(self, requested_id: str | None, name: str) -> str:
         raw_id = requested_id.strip() if requested_id else name
-        base_id = _slugify_character_id(raw_id)
+        base_id = _normalize_character_id(raw_id)
         if not base_id:
             base_id = f"character-{uuid4().hex[:8]}"
 

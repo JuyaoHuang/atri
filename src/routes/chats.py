@@ -13,7 +13,10 @@ Provides endpoints for chat session management:
 Reference: docs/Phase5_执行规格.md §US-SRV-005
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+import re
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
 
@@ -28,6 +31,7 @@ class CreateChatRequest(BaseModel):
 
     character_id: str
     first_message: str
+    defer_title: bool = False
 
 
 class CreateChatResponse(BaseModel):
@@ -126,6 +130,20 @@ async def _generate_title_with_llm(first_message: str, llm_config: dict) -> str 
         return None
 
 
+def _temporary_title(first_message: str) -> str:
+    """Build a fast temporary title from the first sentence's first 8 chars.
+
+    使用首句话前 8 个字符构建临时标题。
+    """
+    cleaned = " ".join(first_message.split()).strip()
+    if not cleaned:
+        return "新对话"
+
+    sentence = re.split(r"[。！？!?；;\n\r]+", cleaned, maxsplit=1)[0].strip()
+    candidate = sentence or cleaned
+    return candidate[:8] if len(candidate) > 8 else candidate
+
+
 def _fallback_title(first_message: str) -> str:
     """Generate fallback title by truncating first message.
     通过截取首条消息生成降级标题。
@@ -139,6 +157,28 @@ def _fallback_title(first_message: str) -> str:
         截取的标题（最多 20 字符）。
     """
     return first_message[:20] if len(first_message) > 20 else first_message
+
+
+async def _backfill_chat_title(
+    chat_id: str,
+    first_message: str,
+    llm_config: dict[str, Any],
+    storage: Any,
+) -> None:
+    """Generate a better title asynchronously and patch chat metadata.
+
+    异步生成更好的标题，并回填聊天元数据。
+    """
+    title = await _generate_title_with_llm(first_message, llm_config)
+    if not title:
+        logger.info(f"Deferred title generation skipped | chat_id={chat_id}")
+        return
+
+    try:
+        await storage.update_chat(chat_id, title=title)
+        logger.info(f"Deferred title updated | chat_id={chat_id} | title={title}")
+    except Exception as exc:
+        logger.warning(f"Deferred title update failed | chat_id={chat_id} | error={exc}")
 
 
 @router.get("", response_model=list[ChatListItem])
@@ -165,7 +205,11 @@ async def list_chats(
 
 
 @router.post("", response_model=CreateChatResponse, status_code=201)
-async def create_chat(request: Request, body: CreateChatRequest) -> CreateChatResponse:
+async def create_chat(
+    request: Request,
+    body: CreateChatRequest,
+    background_tasks: BackgroundTasks,
+) -> CreateChatResponse:
     """Create a new chat session with LLM-generated title.
     创建新聊天会话，使用 LLM 生成标题。
 
@@ -181,20 +225,37 @@ async def create_chat(request: Request, body: CreateChatRequest) -> CreateChatRe
     config = request.app.state.config
     user_id = "default"  # Phase 5: hardcoded user_id
 
-    # Generate title with LLM (with fallback)
-    # 使用 LLM 生成标题（带降级）
     llm_config = config.get("llm", {})
-    title = await _generate_title_with_llm(body.first_message, llm_config)
 
-    if not title:
-        title = _fallback_title(body.first_message)
-        logger.info(f"Using fallback title: {title}")
+    title: str
+
+    if body.defer_title:
+        title = _temporary_title(body.first_message)
+        logger.info(f"Using deferred temporary title: {title}")
     else:
-        logger.info(f"Generated title: {title}")
+        # Generate title with LLM (with fallback)
+        # 使用 LLM 生成标题（带降级）
+        generated_title = await _generate_title_with_llm(body.first_message, llm_config)
+
+        if not generated_title:
+            title = _fallback_title(body.first_message)
+            logger.info(f"Using fallback title: {title}")
+        else:
+            title = generated_title
+            logger.info(f"Generated title: {title}")
 
     # Create chat in storage
     # 在存储中创建聊天
     chat_meta = await storage.create_chat(user_id, body.character_id, title)
+
+    if body.defer_title:
+        background_tasks.add_task(
+            _backfill_chat_title,
+            chat_meta["id"],
+            body.first_message,
+            llm_config,
+            storage,
+        )
 
     return CreateChatResponse(
         id=chat_meta["id"],

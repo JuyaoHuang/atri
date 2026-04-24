@@ -117,7 +117,7 @@ async def test_create_character_persists_markdown_file(client_and_storage):
     response = await client.post(
         "/api/characters",
         json={
-            "name": "Phase7 Card",
+            "name": "测试",
             "greeting": "你好，我是新角色。",
             "description": "Phase 7 创建的角色",
             "system_prompt": "你是 Phase 7 新角色。",
@@ -126,12 +126,12 @@ async def test_create_character_persists_markdown_file(client_and_storage):
     assert response.status_code == 201
 
     data = response.json()
-    assert data["character_id"] == "phase7-card"
+    assert data["character_id"] == "测试"
     assert data["is_system"] is False
     assert data["description"] == "Phase 7 创建的角色"
     assert data["created_at"] is not None
-    assert storage.get_character("phase7-card").managed_by == "atri"
-    assert (storage.persona_dir / "phase7-card.md").is_file()
+    assert storage.get_character("测试").managed_by == "atri"
+    assert (storage.persona_dir / "测试.md").is_file()
 
 
 @pytest.mark.asyncio
@@ -141,7 +141,7 @@ async def test_update_character_changes_metadata(client_and_storage):
     create_response = await client.post(
         "/api/characters",
         json={
-            "name": "Editable Card",
+            "name": "EditableCard",
             "greeting": "初始问候",
             "description": "初始描述",
             "system_prompt": "初始设定",
@@ -152,7 +152,7 @@ async def test_update_character_changes_metadata(client_and_storage):
     update_response = await client.put(
         f"/api/characters/{created['character_id']}",
         json={
-            "name": "Editable Card Updated",
+            "name": "EditableCardUpdated",
             "greeting": "更新后的问候",
             "description": "更新后的描述",
             "system_prompt": "更新后的设定",
@@ -161,7 +161,7 @@ async def test_update_character_changes_metadata(client_and_storage):
     assert update_response.status_code == 200
 
     updated = update_response.json()
-    assert updated["name"] == "Editable Card Updated"
+    assert updated["name"] == "EditableCardUpdated"
     assert updated["greeting"] == "更新后的问候"
     assert updated["description"] == "更新后的描述"
     assert updated["system_prompt"] == "更新后的设定"
@@ -175,7 +175,7 @@ async def test_delete_character_removes_custom_persona_file(client_and_storage):
     create_response = await client.post(
         "/api/characters",
         json={
-            "name": "Disposable Card",
+            "name": "DisposableCard",
             "greeting": "待删除",
             "description": "待删除角色",
             "system_prompt": "删除测试",
@@ -218,13 +218,63 @@ async def test_create_character_rejects_duplicate_name(client_and_storage):
 
 
 @pytest.mark.asyncio
+async def test_create_character_rejects_symbol_name(client_and_storage):
+    client, _storage = client_and_storage
+
+    response = await client.post(
+        "/api/characters",
+        json={
+            "name": "测试!",
+            "greeting": "非法名称",
+            "description": "非法名称",
+            "system_prompt": "非法名称测试",
+        },
+    )
+    assert response.status_code == 400
+    assert "only letters and digits, without spaces or symbols" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_character_allows_multilingual_letters_and_digits(client_and_storage):
+    client, storage = client_and_storage
+
+    response = await client.post(
+        "/api/characters",
+        json={
+            "name": "テスト2",
+            "greeting": "多语言测试",
+            "description": "允许日文和数字",
+            "system_prompt": "你是多语言测试角色。",
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["character_id"] == "テスト2"
+    assert (storage.persona_dir / "テスト2.md").is_file()
+
+    response = await client.post(
+        "/api/characters",
+        json={
+            "name": "Тест3",
+            "greeting": "俄文测试",
+            "description": "允许俄文和数字",
+            "system_prompt": "你是俄文测试角色。",
+        },
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["character_id"] == "Тест3"
+    assert (storage.persona_dir / "Тест3.md").is_file()
+
+
+@pytest.mark.asyncio
 async def test_upload_avatar_stores_file_and_updates_character(client_and_storage):
     client, storage = client_and_storage
 
     create_response = await client.post(
         "/api/characters",
         json={
-            "name": "Avatar Card",
+            "name": "AvatarCard",
             "greeting": "头像测试",
             "description": "测试头像上传",
             "system_prompt": "头像测试角色",

@@ -126,6 +126,66 @@ async def test_create_chat_truncates_long_fallback(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_create_chat_with_deferred_title_uses_first_sentence_excerpt(client: AsyncClient):
+    """Deferred title mode should return the first sentence's first 8 chars."""
+
+    async def mock_stream(*args, **kwargs):
+        yield "真正标题"
+
+    with patch("src.routes.chats.create_from_role") as mock_create:
+        mock_llm = MagicMock()
+        mock_llm.chat_completion_stream = MagicMock(
+            side_effect=lambda *a, **kw: mock_stream(*a, **kw)
+        )
+        mock_create.return_value = mock_llm
+
+        response = await client.post(
+            "/api/chats",
+            json={
+                "character_id": "atri",
+                "first_message": "你好呀亚托莉。今天一起散步吧！",
+                "defer_title": True,
+            },
+        )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["title"] == "你好呀亚托莉"
+
+
+@pytest.mark.asyncio
+async def test_create_chat_with_deferred_title_backfills_generated_title(client: AsyncClient):
+    """Deferred title mode should patch the stored title in the background."""
+
+    async def mock_stream(*args, **kwargs):
+        yield "延后生成标题"
+
+    with patch("src.routes.chats.create_from_role") as mock_create:
+        mock_llm = MagicMock()
+        mock_llm.chat_completion_stream = MagicMock(
+            side_effect=lambda *a, **kw: mock_stream(*a, **kw)
+        )
+        mock_create.return_value = mock_llm
+
+        create_response = await client.post(
+            "/api/chats",
+            json={
+                "character_id": "atri",
+                "first_message": "晚上一起看海吧。顺便聊聊心情。",
+                "defer_title": True,
+            },
+        )
+
+    assert create_response.status_code == 201
+    create_data = create_response.json()
+    assert create_data["title"] == "晚上一起看海吧"
+
+    detail_response = await client.get(f"/api/chats/{create_data['id']}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["metadata"]["title"] == "延后生成标题"
+
+
+@pytest.mark.asyncio
 async def test_list_chats_empty(client: AsyncClient):
     """List chats should return empty list for new user.
     新用户列出聊天应返回空列表。

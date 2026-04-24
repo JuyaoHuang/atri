@@ -44,9 +44,16 @@ llm_configs:
     api_key: ${COMPRESS_API_KEY}       # API 密钥（从环境变量读取）
     temperature: 0.3                   # 采样温度：压缩场景使用较低值以确保稳定性
 
+  title_gen:
+    provider: openai_compatible        # 提供商名称，须与工厂注册名一致
+    model: deepseek-ai/DeepSeek-V3.2       # 使用更轻量/更便宜的模型以降低压缩成本
+    base_url: https://api.siliconflow.cn/v1    # API 基础 URL（从环境变量读取）
+    api_key: ${COMPRESS_API_KEY}       # API 密钥（从环境变量读取）
+    temperature: 0.3                   # 采样温度：压缩场景使用较低值以确保稳定性
+
 # 角色映射：将每个调用位点映射到 llm_configs 中的某个池条目
 llm_roles:
   chat: chat_main              # 聊天调用位点 -> chat_main
   l3_compress: compress_light  # L3 滚动压缩 -> compress_light
   l4_compact: compress_light   # L4 整合压缩 -> compress_light
-  title_gen: compress_light    # 标题生成 -> compress_light（轻量模型即可）
+  title_gen: title_gen         # 标题生成 -> title_gen（轻量模型即可）
