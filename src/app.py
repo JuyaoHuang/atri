@@ -40,6 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from src.asr import ASRConfigStore, ASRService
 from src.service_context import ServiceContext
 from src.storage.character_storage import CharacterStorage, get_default_character_avatar_dir
 from src.storage.factory import create_chat_storage
@@ -100,6 +101,7 @@ def create_app(config: dict) -> FastAPI:
     # Store config in app state for lifespan access
     # 将配置存储在 app state 中供 lifespan 访问
     app.state.config = config
+    app.state.asr_service = ASRService(ASRConfigStore(config.get("asr", {})))
     app.state.character_storage = CharacterStorage()
     app.state.live2d_storage = Live2DStorage()
 
@@ -135,6 +137,7 @@ def create_app(config: dict) -> FastAPI:
 
     # Register routes
     # 注册路由
+    from src.routes.asr import router as asr_router
     from src.routes.characters import router as characters_router
     from src.routes.chat_ws import websocket_endpoint
     from src.routes.chats import router as chats_router
@@ -142,6 +145,7 @@ def create_app(config: dict) -> FastAPI:
     from src.routes.live2d import router as live2d_router
 
     app.include_router(health_router)
+    app.include_router(asr_router)
     app.include_router(characters_router)
     app.include_router(chats_router)
     app.include_router(live2d_router)
@@ -150,5 +154,12 @@ def create_app(config: dict) -> FastAPI:
     # 注册 WebSocket 端点
     app.websocket("/ws")(websocket_endpoint)
 
+    # Compatibility alias for direct avatar access by filename.
+    app.mount(
+        "/static/avatars",
+        StaticFiles(directory=str(avatar_dir), check_dir=False),
+        name="static-avatar-assets",
+    )
+    
     logger.info("FastAPI app created successfully")
     return app

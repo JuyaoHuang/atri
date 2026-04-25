@@ -2,6 +2,7 @@
 name: 亚托莉
 avatar: atri.jpg
 greeting: 主人，早上好！我是高性能的！
+updated_at: '2026-04-25T04:55:23.329826Z'
 ---
 
 # 角色设定

@@ -133,6 +133,28 @@ async def test_build_llm_context_called_with_raw_user_input() -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_context_passed_to_builder_but_not_committed() -> None:
+    mgr = _make_mgr()
+    agent = ChatAgent(_make_llm(["ok"]), mgr, _persona("SYS"))
+    runtime_context = {
+        "datetime": {
+            "iso": "2026-04-25T04:34:00.000Z",
+            "local": "2026/4/25 12:34:00",
+        }
+    }
+
+    [_ async for _ in agent.chat("what time is it?", runtime_context=runtime_context)]
+
+    mgr.build_llm_context.assert_awaited_once_with(
+        "what time is it?",
+        system_prompt="SYS",
+        runtime_context=runtime_context,
+    )
+    user_msg, _ai_msg = mgr.on_round_complete.await_args.args
+    assert user_msg == {"role": "human", "content": "what time is it?"}
+
+
+@pytest.mark.asyncio
 async def test_llm_stream_called_with_build_context_result() -> None:
     """chat_completion_stream is called with the messages list that
     build_llm_context returned.

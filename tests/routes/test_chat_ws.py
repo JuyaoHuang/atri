@@ -171,6 +171,63 @@ async def test_websocket_text_input_streaming(
 
 
 @pytest.mark.asyncio
+async def test_websocket_text_input_passes_client_context_without_persisting_it(
+    mock_config: dict, mock_service_context: tuple, mock_storage: AsyncMock
+) -> None:
+    mock_context, mock_agent = mock_service_context
+    chunks = ["It is noon."]
+    client_context = {
+        "datetime": {
+            "iso": "2026-04-25T04:00:00.000Z",
+            "local": "2026/4/25 12:00:00",
+            "time_zone": "Asia/Shanghai",
+            "utc_offset": "UTC+08:00",
+        }
+    }
+    mock_agent.chat = MagicMock(
+        side_effect=lambda text, runtime_context=None: _mock_chat_stream(chunks)
+    )
+
+    with (
+        patch("src.app.ServiceContext", return_value=mock_context),
+        patch("src.app.create_chat_storage", return_value=mock_storage),
+    ):
+        app = create_app(mock_config)
+        app.state.service_context = mock_context
+        app.state.storage = mock_storage
+
+        client = TestClient(app)
+
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json(
+                {
+                    "type": "input:text",
+                    "data": {
+                        "text": "what time is it?",
+                        "chat_id": "test_chat_time",
+                        "character_id": "atri",
+                        "client_context": client_context,
+                    },
+                }
+            )
+
+            chunk_response = websocket.receive_json()
+            assert chunk_response["type"] == "output:chat:chunk"
+            complete_response = websocket.receive_json()
+            assert complete_response["type"] == "output:chat:complete"
+
+            mock_agent.chat.assert_called_once_with(
+                "what time is it?",
+                runtime_context=client_context,
+            )
+            mock_storage.append_message.assert_any_call(
+                "test_chat_time", "human", "what time is it?", name="default"
+            )
+            persisted_user_args = mock_storage.append_message.call_args_list[0].args
+            assert persisted_user_args == ("test_chat_time", "human", "what time is it?")
+
+
+@pytest.mark.asyncio
 async def test_websocket_invalid_json(
     mock_config: dict, mock_service_context: tuple, mock_storage: AsyncMock
 ) -> None:

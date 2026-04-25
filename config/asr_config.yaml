@@ -1,6 +1,34 @@
-# ============================================================
-# ASR config -- RESERVED
-#
-# Filled in during the ASR implementation phase.
-# Reference: docs/项目架构设计.md §2.1 (Input Layer)
-# ============================================================
+asr_model: web_speech_api
+auto_send:
+  enabled: false
+  delay_ms: 2000
+web_speech_api:
+  language: zh-CN
+  continuous: true
+  interim_results: true
+  max_alternatives: 1
+faster_whisper:
+  model_path: distil-medium.en
+  download_root: models/whisper
+  language: en
+  device: auto
+  compute_type: int8
+  prompt: ''
+whisper_cpp:
+  model_name: small
+  model_dir: models/whisper
+  print_realtime: false
+  print_progress: false
+  language: auto
+  prompt: ''
+whisper:
+  name: medium
+  download_root: models/whisper
+  device: cpu
+  prompt: ''
+openai_whisper:
+  model: whisper-1
+  api_key: ${OPENAI_API_KEY}
+  base_url: ''
+  language: ''
+  prompt: ''
