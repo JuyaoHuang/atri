@@ -154,5 +154,12 @@ def create_app(config: dict) -> FastAPI:
     # 注册 WebSocket 端点
     app.websocket("/ws")(websocket_endpoint)
 
+    # Compatibility alias for direct avatar access by filename.
+    app.mount(
+        "/static/avatars",
+        StaticFiles(directory=str(avatar_dir), check_dir=False),
+        name="static-avatar-assets",
+    )
+    
     logger.info("FastAPI app created successfully")
     return app
