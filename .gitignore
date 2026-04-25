@@ -1,6 +1,6 @@
 .omc
 .idea
-data/chats/default/
+
 # Python
 __pycache__/
 *.pyc
@@ -23,6 +23,11 @@ data/characters/**/sessions/
 data/characters/**/short_term_memory.json
 data/qdrant/
 
+data/chats/**/sessions/
+data/chats/**/short_term_memory.json
+data/chats/**/index.json
+
+data/avatars/
 # Env files
 .env
 .env.*
