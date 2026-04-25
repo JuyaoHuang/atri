@@ -258,9 +258,9 @@ def test_tts_service_blocks_provider_write_protected_fields(tmp_path: Path):
     config = service.config_store.read()
     persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
-    assert "voice" not in config["edge_tts"]
+    assert config["edge_tts"]["voice"] == "en-US-AriaNeural"
     assert "pitch" not in config["edge_tts"]
-    assert persisted["edge_tts"] == {"rate": "+10%"}
+    assert persisted["edge_tts"] == {"voice": "en-US-AriaNeural", "rate": "+10%"}
     assert "gpt_sovits_tts" not in persisted
     assert "api_key" not in config["siliconflow_tts"]
     assert "api_url" not in config["siliconflow_tts"]

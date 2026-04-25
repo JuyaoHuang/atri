@@ -1,6 +1,6 @@
 # 文本转语音（TTS）配置
 # tts_model 可选：edge_tts、gpt_sovits_tts、siliconflow_tts、cosyvoice3_tts。
-tts_model: cosyvoice3_tts # 当前使用的文本转语音模型
+tts_model: edge_tts # 当前使用的文本转语音模型
 enabled: true # 是否启用 TTS 模块
 auto_play: true # 是否自动朗读 AI 回复
 show_player_on_home: false # 是否在 / 页面显示播放控制组件
@@ -44,7 +44,7 @@ cosyvoice3_tts:
   # 参数含义参考 Open-LLM-VTuber 的 cosyvoice2_tts 配置。
   client_url: http://127.0.0.1:50000/ # CosyVoice Gradio WebUI URL
   mode_checkbox_group: 预训练音色 # 模式复选框组；常见选项：预训练音色、3s极速复刻、跨语种复刻、自然语言控制
-  sft_dropdown: ar-IQ-RanaNeural # SFT/预训练音色下拉选项；前端允许切换该字段
+  sft_dropdown: fi-FI-NooraNeural # SFT/预训练音色下拉选项；前端允许切换该字段
   prompt_text: '' # 提示文本；复刻/克隆模式用于描述参考音频内容
   prompt_wav_upload_url: https://github.com/gradio-app/gradio/raw/main/test/test_files/audio_sample.wav # 上传参考音频的路径或 URL
   prompt_wav_record_url: https://github.com/gradio-app/gradio/raw/main/test/test_files/audio_sample.wav # 录制参考音频的路径或 URL

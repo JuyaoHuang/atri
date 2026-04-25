@@ -13,7 +13,7 @@ from .interface import TTSVoice
 SENSITIVE_CONFIG_KEYS = {"api_key", "token", "secret", "password"}
 SENSITIVE_CONFIG_MASK = "********"
 PROVIDER_WRITE_ALLOWLISTS: dict[str, set[str]] = {
-    "edge_tts": {"rate"},
+    "edge_tts": {"voice", "rate"},
     "gpt_sovits_tts": set(),
     "siliconflow_tts": {"default_voice", "stream"},
     "cosyvoice3_tts": {"sft_dropdown", "stream", "speed"},
