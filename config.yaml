@@ -23,6 +23,7 @@ server_config: config/server_config.yaml
 storage_config: config/storage_config.yaml
 asr_config: config/asr_config.yaml
 tts_config: config/tts_config.yaml
+auth_config: config/auth.yaml
 
 # Reserved for future phases:
 # translate_config: config/translate_config.yaml
