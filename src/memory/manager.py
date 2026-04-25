@@ -51,6 +51,7 @@ import json
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -118,6 +119,49 @@ def _map_role(role: str) -> str:
     if mapped is None:
         raise ValueError(f"Unknown role: {role!r}")
     return mapped
+
+
+def _context_text(value: Any, max_length: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.strip().split())
+    if not text:
+        return None
+    return text[:max_length]
+
+
+def _format_datetime_context(runtime_context: dict[str, Any] | None) -> str | None:
+    if not isinstance(runtime_context, dict):
+        return None
+
+    datetime_context = runtime_context.get("datetime")
+    if not isinstance(datetime_context, dict):
+        return None
+
+    iso = _context_text(datetime_context.get("iso"), 80)
+    local = _context_text(datetime_context.get("local"), 160)
+    time_zone = _context_text(datetime_context.get("time_zone"), 80)
+    utc_offset = _context_text(datetime_context.get("utc_offset"), 16)
+    if not iso and not local:
+        return None
+
+    content = f"Current datetime: {iso or 'unknown'}"
+    details = [detail for detail in (local, time_zone, utc_offset) if detail]
+    if details:
+        content = f"{content} ({'; '.join(details)})"
+    return content
+
+
+def _serialize_runtime_context(runtime_context: dict[str, Any] | None) -> str:
+    datetime_context = _format_datetime_context(runtime_context)
+    if not datetime_context:
+        return ""
+
+    return (
+        "<context>\n"
+        f'  <module name="system:datetime">{escape(datetime_context, quote=False)}</module>\n'
+        "</context>"
+    )
 
 
 class MemoryManager:
@@ -733,6 +777,7 @@ class MemoryManager:
         self,
         user_input: str,
         system_prompt: str = "",
+        runtime_context: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Assemble the messages payload for the next LLM turn.
 
@@ -745,7 +790,8 @@ class MemoryManager:
           4. Each ``active_block['summary']``                 oldest-first
           5. ``recent_messages`` expanded one message each, with role
              mapping ``human`` -> ``user`` and ``ai`` -> ``assistant``.
-          6. ``user_input`` as a final ``{'role':'user', ...}``.
+          6. ``user_input`` as a final ``{'role':'user', ...}``, optionally
+             suffixed with hidden runtime context for the current LLM turn.
 
         This method does **not** call the LLM -- it only composes the list.
         ``ChatAgent`` (Phase 4) consumes the result and feeds it to
@@ -806,7 +852,12 @@ class MemoryManager:
                     }
                 )
 
-        messages.append({"role": "user", "content": user_input})
+        final_user_content = user_input
+        runtime_context_payload = _serialize_runtime_context(runtime_context)
+        if runtime_context_payload:
+            final_user_content = f"{user_input}\n\n{runtime_context_payload}"
+
+        messages.append({"role": "user", "content": final_user_content})
         return messages
 
 

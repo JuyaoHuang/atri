@@ -48,6 +48,7 @@ S1a / S1b / S5）：
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from loguru import logger
 
@@ -97,7 +98,11 @@ class ChatAgent:
         self.memory_manager = memory_manager
         self.persona = persona
 
-    async def chat(self, user_input: str) -> AsyncIterator[str]:
+    async def chat(
+        self,
+        user_input: str,
+        runtime_context: dict[str, Any] | None = None,
+    ) -> AsyncIterator[str]:
         """Stream LLM tokens for ``user_input`` and auto-commit the round.
 
         Sequence (success path, per §6.1):
@@ -157,10 +162,11 @@ class ChatAgent:
         产出：
             str：底层 LLM 流的每个 chunk（按到达顺序）。
         """
-        messages = await self.memory_manager.build_llm_context(
-            user_input,
-            system_prompt=self.persona.system_prompt,
-        )
+        context_kwargs: dict[str, Any] = {"system_prompt": self.persona.system_prompt}
+        if runtime_context:
+            context_kwargs["runtime_context"] = runtime_context
+
+        messages = await self.memory_manager.build_llm_context(user_input, **context_kwargs)
 
         reply_chunks: list[str] = []
         try:
@@ -210,7 +216,11 @@ class ChatAgent:
             {"role": "ai", "content": reply, "name": self.persona.name},
         )
 
-    async def chat_collect(self, user_input: str) -> str:
+    async def chat_collect(
+        self,
+        user_input: str,
+        runtime_context: dict[str, Any] | None = None,
+    ) -> str:
         """Collect :meth:`chat`'s streaming output into one string.
 
         Default implementation iterates :meth:`chat` so ``on_round_complete``
@@ -223,7 +233,7 @@ class ChatAgent:
         恰好触发一次。不走独立的 LLM 调用路径——当非流式 API 显著更廉价
         时，子类可以覆盖此方法。
         """
-        chunks = [chunk async for chunk in self.chat(user_input)]
+        chunks = [chunk async for chunk in self.chat(user_input, runtime_context=runtime_context)]
         return "".join(chunks)
 
 

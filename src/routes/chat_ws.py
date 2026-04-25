@@ -133,6 +133,9 @@ async def _handle_text_input(
     text = data.get("text")
     chat_id = data.get("chat_id")
     character_id = data.get("character_id")
+    client_context = data.get("client_context")
+    if not isinstance(client_context, dict):
+        client_context = None
 
     # Validate required fields
     # 验证必填字段
@@ -166,7 +169,12 @@ async def _handle_text_input(
     # 流式传输 ChatAgent 响应
     chunks = []
     try:
-        async for chunk in agent.chat(text):
+        chat_stream = (
+            agent.chat(text, runtime_context=client_context)
+            if client_context
+            else agent.chat(text)
+        )
+        async for chunk in chat_stream:
             chunks.append(chunk)
             # Send chunk to client
             # 发送 chunk 给客户端

@@ -765,6 +765,47 @@ async def test_build_llm_context_empty_long_term_omits_position_2(
 
 
 @pytest.mark.asyncio
+async def test_build_llm_context_appends_runtime_datetime_context(tmp_path: Path) -> None:
+    mgr, _long_term = _make_manager_with_mock_long_term(tmp_path)
+    runtime_context = {
+        "datetime": {
+            "iso": "2026-04-25T04:34:00.000Z",
+            "local": "2026/4/25 12:34:00",
+            "time_zone": "Asia/Shanghai",
+            "utc_offset": "UTC+08:00",
+        }
+    }
+
+    messages = await mgr.build_llm_context("what time is it?", runtime_context=runtime_context)
+
+    final_content = messages[-1]["content"]
+    assert final_content.startswith("what time is it?\n\n<context>")
+    assert (
+        '<module name="system:datetime">Current datetime: '
+        "2026-04-25T04:34:00.000Z "
+        "(2026/4/25 12:34:00; Asia/Shanghai; UTC+08:00)</module>"
+    ) in final_content
+    assert final_content.endswith("</context>")
+
+
+@pytest.mark.asyncio
+async def test_build_llm_context_escapes_runtime_datetime_context(tmp_path: Path) -> None:
+    mgr, _long_term = _make_manager_with_mock_long_term(tmp_path)
+    runtime_context = {
+        "datetime": {
+            "iso": "2026-04-25T04:34:00.000Z",
+            "local": "<local & browser>",
+        }
+    }
+
+    messages = await mgr.build_llm_context("q", runtime_context=runtime_context)
+
+    final_content = messages[-1]["content"]
+    assert "<local & browser>" not in final_content
+    assert "&lt;local &amp; browser&gt;" in final_content
+
+
+@pytest.mark.asyncio
 async def test_build_llm_context_role_mapping(tmp_path: Path) -> None:
     """human -> user, ai -> assistant, system -> system.
 
