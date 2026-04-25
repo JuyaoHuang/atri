@@ -1,7 +1,7 @@
 # 自动语音识别（ASR）配置
 # asr_model 可选：web_speech_api、faster_whisper、whisper_cpp、whisper、openai_whisper。
 # web_speech_api 在浏览器侧识别；其他 provider 用后端处理上传音频。
-asr_model: faster_whisper # 当前使用的语音识别模型
+asr_model: web_speech_api # 当前使用的语音识别模型
 
 auto_send:
   enabled: false # 浏览器端识别到语音后是否自动发送到聊天

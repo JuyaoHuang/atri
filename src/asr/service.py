@@ -11,6 +11,12 @@ from .factory import ASRFactory
 
 SENSITIVE_CONFIG_KEYS = {"api_key", "token", "secret", "password"}
 SENSITIVE_CONFIG_MASK = "********"
+PROVIDER_WRITE_ALLOWLISTS: dict[str, set[str]] = {
+    "web_speech_api": {"language", "continuous", "interim_results", "max_alternatives"},
+    "faster_whisper": {"language"},
+    "whisper_cpp": set(),
+    "openai_whisper": set(),
+}
 
 
 class ASRService:
@@ -28,6 +34,7 @@ class ASRService:
         """Merge and persist a partial OLV-shaped ASR config update."""
 
         patch = self._strip_masked_sensitive_values(patch)
+        patch = self._strip_forbidden_provider_writes(patch)
         next_model = patch.get("asr_model")
         if next_model is not None:
             self._ensure_provider_registered(str(next_model))
@@ -166,4 +173,27 @@ class ASRService:
                 cleaned[key] = self._strip_masked_sensitive_values(value)
             else:
                 cleaned[key] = value
+        return cleaned
+
+    def _strip_forbidden_provider_writes(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Remove provider fields that are read-only from API updates."""
+
+        cleaned: dict[str, Any] = {}
+        for key, value in config.items():
+            if not isinstance(value, dict):
+                cleaned[key] = value
+                continue
+
+            allowed = PROVIDER_WRITE_ALLOWLISTS.get(key)
+            if allowed is None:
+                provider_config = dict(value)
+            else:
+                provider_config = {
+                    field: field_value
+                    for field, field_value in value.items()
+                    if field in allowed
+                }
+
+            if provider_config:
+                cleaned[key] = provider_config
         return cleaned

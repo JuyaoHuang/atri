@@ -241,9 +241,69 @@ def test_asr_service_ignores_masked_secret_patch(tmp_path: Path):
     raw_config = service.config_store.read()
     persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert raw_config["openai_whisper"]["api_key"] == "resolved-runtime-key"
-    assert raw_config["openai_whisper"]["model"] == "gpt-4o-mini-transcribe"
+    assert raw_config["openai_whisper"]["model"] == "whisper-1"
     assert persisted["openai_whisper"]["api_key"] == "${OPENAI_API_KEY}"
-    assert persisted["openai_whisper"]["model"] == "gpt-4o-mini-transcribe"
+    assert persisted["openai_whisper"]["model"] == "whisper-1"
+
+
+def test_asr_service_blocks_provider_write_protected_fields(tmp_path: Path):
+    config_path = tmp_path / "asr_config.yaml"
+    service = ASRService(
+        ASRConfigStore(
+            {
+                "asr_model": "faster_whisper",
+                "faster_whisper": {
+                    "model_path": "distil-large-v3",
+                    "download_root": "models/whisper",
+                    "language": "zh",
+                },
+                "whisper_cpp": {
+                    "model_name": "small",
+                    "model_dir": "models/whisper",
+                },
+                "openai_whisper": {
+                    "model": "whisper-1",
+                    "base_url": "",
+                },
+            },
+            path=config_path,
+        )
+    )
+
+    service.update_config(
+        {
+            "faster_whisper": {
+                "model_path": "bad-model",
+                "download_root": "bad-root",
+                "language": "ja",
+            },
+            "whisper_cpp": {
+                "model_name": "bad-model",
+                "model_dir": "bad-dir",
+            },
+            "openai_whisper": {
+                "model": "bad-model",
+                "base_url": "https://bad.example/v1",
+            },
+        }
+    )
+
+    raw_config = service.config_store.read()
+    persisted = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert raw_config["faster_whisper"]["model_path"] == "distil-large-v3"
+    assert raw_config["faster_whisper"]["download_root"] == "models/whisper"
+    assert raw_config["faster_whisper"]["language"] == "ja"
+    assert raw_config["whisper_cpp"]["model_name"] == "small"
+    assert raw_config["whisper_cpp"]["model_dir"] == "models/whisper"
+    assert raw_config["openai_whisper"]["model"] == "whisper-1"
+    assert raw_config["openai_whisper"]["base_url"] == ""
+    assert persisted["faster_whisper"]["model_path"] == "distil-large-v3"
+    assert persisted["faster_whisper"]["download_root"] == "models/whisper"
+    assert persisted["faster_whisper"]["language"] == "ja"
+    assert persisted["whisper_cpp"]["model_name"] == "small"
+    assert persisted["whisper_cpp"]["model_dir"] == "models/whisper"
+    assert persisted["openai_whisper"]["model"] == "whisper-1"
+    assert persisted["openai_whisper"]["base_url"] == ""
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 # 文本转语音（TTS）配置
 # tts_model 可选：edge_tts、gpt_sovits_tts、siliconflow_tts、cosyvoice3_tts。
-tts_model: gpt_sovits_tts # 当前使用的文本转语音模型
-enabled: false # 是否启用 TTS 模块
+tts_model: cosyvoice3_tts # 当前使用的文本转语音模型
+enabled: true # 是否启用 TTS 模块
 auto_play: true # 是否自动朗读 AI 回复
 show_player_on_home: false # 是否在 / 页面显示播放控制组件
 volume: 1 # 浏览器播放音量，范围通常为 0.0-1.0
@@ -31,7 +31,7 @@ siliconflow_tts:
   api_key: ${SILICONFLOW_API_KEY} # SiliconFlow API 密钥；建议使用环境变量占位符
   api_url: https://api.siliconflow.cn/v1/audio/speech # SiliconFlow 语音合成 API URL
   default_model: FunAudioLLM/CosyVoice2-0.5B # 默认语音模型
-  default_voice: FunAudioLLM/CosyVoice2-0.5B:claire # 默认音色；前端允许切换该字段
+  default_voice: FunAudioLLM/CosyVoice2-0.5B:benjamin # 默认音色；前端允许切换该字段
   sample_rate: 32000 # 输出采样率
   response_format: mp3 # 返回音频格式
   stream: false # 是否请求流式生成；当前后端仍返回完整音频
@@ -44,7 +44,7 @@ cosyvoice3_tts:
   # 参数含义参考 Open-LLM-VTuber 的 cosyvoice2_tts 配置。
   client_url: http://127.0.0.1:50000/ # CosyVoice Gradio WebUI URL
   mode_checkbox_group: 预训练音色 # 模式复选框组；常见选项：预训练音色、3s极速复刻、跨语种复刻、自然语言控制
-  sft_dropdown: 中文女 # SFT/预训练音色下拉选项；前端允许切换该字段
+  sft_dropdown: ar-IQ-RanaNeural # SFT/预训练音色下拉选项；前端允许切换该字段
   prompt_text: '' # 提示文本；复刻/克隆模式用于描述参考音频内容
   prompt_wav_upload_url: https://github.com/gradio-app/gradio/raw/main/test/test_files/audio_sample.wav # 上传参考音频的路径或 URL
   prompt_wav_record_url: https://github.com/gradio-app/gradio/raw/main/test/test_files/audio_sample.wav # 录制参考音频的路径或 URL
