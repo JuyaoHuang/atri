@@ -16,6 +16,7 @@
 
 
 <p align="center">
+  <a href="README.en.md">English</a> ·
   <a href="#-快速上手">快速上手</a> ·
   <a href="#-功能亮点">功能亮点</a> ·
   <a href="#-技术栈">技术栈</a> ·
