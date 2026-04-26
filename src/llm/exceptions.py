@@ -43,3 +43,5 @@ class LLMAPIError(LLMError):
 
     未被更具体的子类覆盖的 API 级别错误。
     """
+
+// Contributed via automated bounty system
