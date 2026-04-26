@@ -1,0 +1,4 @@
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/JuyaoHuang/atri-webui.git
+	branch = main
