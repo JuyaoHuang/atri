@@ -175,6 +175,64 @@ async def test_auth_callback_rejects_mismatched_oauth_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auth_callback_skips_invalid_state_when_session_cookie_is_valid() -> None:
+    app = create_app(_base_config(_enabled_auth_config()))
+    app.state.auth_service.github_oauth.exchange_code_for_token = AsyncMock()
+    token = app.state.auth_service.jwt_manager.create_token("JuyaoHuang")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+        follow_redirects=False,
+    ) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, token, path="/")
+        client.cookies.set(
+            "atri_oauth_state",
+            "expected-state",
+            path="/api/auth",
+        )
+        response = await client.get(
+            "/api/auth/callback?code=github-code&state=actual-state",
+        )
+
+    assert response.status_code == 307
+    location = urlparse(response.headers["location"])
+    params = parse_qs(location.query)
+    assert location.path == "/auth/callback"
+    assert params["success"] == ["1"]
+    assert "error" not in params
+    assert "atri_oauth_state=" in response.headers["set-cookie"]
+    assert "Max-Age=0" in response.headers["set-cookie"]
+    app.state.auth_service.github_oauth.exchange_code_for_token.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auth_callback_rejects_invalid_state_when_session_cookie_is_invalid() -> None:
+    app = create_app(_base_config(_enabled_auth_config()))
+    app.state.auth_service.github_oauth.exchange_code_for_token = AsyncMock()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+        follow_redirects=False,
+    ) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, "not-a-valid-token", path="/")
+        client.cookies.set(
+            "atri_oauth_state",
+            "expected-state",
+            path="/api/auth",
+        )
+        response = await client.get(
+            "/api/auth/callback?code=github-code&state=actual-state",
+        )
+
+    assert response.status_code == 307
+    location = urlparse(response.headers["location"])
+    assert parse_qs(location.query)["error"] == ["invalid_state"]
+    app.state.auth_service.github_oauth.exchange_code_for_token.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_auth_callback_accepts_matching_oauth_state() -> None:
     app = create_app(_base_config(_enabled_auth_config()))
     app.state.auth_service.github_oauth.exchange_code_for_token = AsyncMock(

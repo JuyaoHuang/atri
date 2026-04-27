@@ -118,6 +118,18 @@ def _is_valid_oauth_state(request: Request, state: str | None) -> bool:
     return secrets.compare_digest(state, expected_state)
 
 
+def _has_valid_session_cookie(request: Request) -> bool:
+    auth_service = get_auth_service(request.app)
+    try:
+        auth_service.authenticate_credentials(
+            authorization=None,
+            session_token=request.cookies.get(SESSION_COOKIE_NAME),
+        )
+    except AuthError:
+        return False
+    return True
+
+
 @router.get("/status", response_model=AuthStatusResponse)
 async def get_auth_status(request: Request) -> AuthStatusResponse:
     auth_service = get_auth_service(request.app)
@@ -177,6 +189,12 @@ async def github_callback(
             {"error": "oauth_config"},
         )
     if not _is_valid_oauth_state(request, state):
+        if _has_valid_session_cookie(request):
+            return _redirect_with_cleared_oauth_state(
+                request,
+                auth_service.frontend_callback_url,
+                {"success": "1"},
+            )
         return _redirect_with_cleared_oauth_state(
             request,
             auth_service.frontend_callback_url,
