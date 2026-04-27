@@ -3,8 +3,8 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/JuyaoHuang/atri.git}"
 TARGET_DIR="${TARGET_DIR:-atri}"
-PYPI_INDEX="${PYPI_INDEX:-https://pypi.tuna.tsinghua.edu.cn/simple}"
-NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
+PYPI_INDEX="${PYPI_INDEX:-}"
+NPM_REGISTRY="${NPM_REGISTRY:-}"
 SKIP_CLONE=0
 
 usage() {
@@ -15,11 +15,8 @@ Usage:
 Options:
   --repo-url URL       Git repository URL to clone when not already in atri.
   --target-dir DIR     Clone target directory. Default: atri
-  --pypi-index URL     PyPI mirror for uv sync.
-                       Default: https://pypi.tuna.tsinghua.edu.cn/simple
-                       Aliyun alternative: https://mirrors.aliyun.com/pypi/simple/
-  --npm-registry URL   npm registry mirror.
-                       Default: https://registry.npmmirror.com
+  --pypi-index URL     PyPI index for uv sync, e.g. https://pypi.tuna.tsinghua.edu.cn/simple,https://pypi.mirrors.ustc.edu.cn/simple
+  --npm-registry URL   npm registry, e.g. https://registry.npmmirror.com,https://mirrors.huaweicloud.com/repository/npm
   --skip-clone         Do not clone. Require current directory to be atri.
   -h, --help           Show this help.
 
@@ -103,15 +100,23 @@ if [[ ! -f ".env" && -f ".env.example" ]]; then
 fi
 
 echo "Installing backend dependencies with uv"
-echo "PyPI index: $PYPI_INDEX"
-UV_DEFAULT_INDEX="$PYPI_INDEX" uv sync
+if [[ -n "$PYPI_INDEX" ]]; then
+  echo "PyPI index: $PYPI_INDEX"
+  UV_DEFAULT_INDEX="$PYPI_INDEX" uv sync
+else
+  uv sync
+fi
 
 if [[ -f "frontend/package.json" ]]; then
   echo "Installing frontend dependencies with npm"
-  echo "npm registry: $NPM_REGISTRY"
   (
     cd frontend
-    npm install --registry "$NPM_REGISTRY"
+    if [[ -n "$NPM_REGISTRY" ]]; then
+      echo "npm registry: $NPM_REGISTRY"
+      npm install --registry "$NPM_REGISTRY"
+    else
+      npm install
+    fi
   )
 else
   echo "frontend/package.json was not found. Check submodule status." >&2
